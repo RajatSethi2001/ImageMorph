@@ -13,9 +13,9 @@ class MorphEnv(gym.Env):
         
         self.action = action
         if action == 0:
-            self.action_space = Box(low=np.array([0, 0, 0, -1]), high=np.array([image.shape[0] - 1, image.shape[1] - 1, image.shape[2] - 1, 1.0]), shape=(4,), dtype=np.float32)
+            self.action_space = Box(low=np.array([0, 0, 0, -1]), high=np.array([1, 1, 1, 1]), shape=(4,), dtype=np.float32)
         elif action == 1:
-            self.action_space = Box(low=np.array([0, 0, 0, 0]), high=np.array([image.shape[0] - 1, image.shape[1] - 1, image.shape[2] - 1, 1.0]), shape=(4,), dtype=np.float32)
+            self.action_space = Box(low=0, high=1, shape=(4,), dtype=np.float32)
         elif action == 2:
             self.action_space = Box(low=-1, high=1, shape=image.shape, dtype=np.float32)
         elif action == 3:
@@ -67,9 +67,9 @@ class MorphEnv(gym.Env):
         self.steps += 1
 
         if self.action == 0:
-            row = np.uint8(np.round(action[0]))
-            col = np.uint8(np.round(action[1]))
-            color = np.uint8(np.round(action[2]))
+            row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
+            col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
+            color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
             pixel_change = action[3]
 
             if pixel_change < 0:
@@ -85,9 +85,9 @@ class MorphEnv(gym.Env):
                     self.perturb_image[row][col][color] += 1
         
         elif self.action == 1:
-            row = np.uint8(np.round(action[0]))
-            col = np.uint8(np.round(action[1]))
-            color = np.uint8(np.round(action[2]))
+            row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
+            col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
+            color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
             pixel_change = np.uint8(np.round(action[3] * 255))
 
             self.perturb_image[row][col][color] = pixel_change
@@ -140,12 +140,11 @@ class MorphEnv(gym.Env):
         reward = self.current_perturbance * self.current_similarity
 
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
-            #self.render()
+            self.render()
             print_perturb = np.format_float_scientific(self.current_perturbance, 3)
-            print_similar = np.format_float_scientific(self.current_similarity, 3)
-            print(f"Perturbance: {print_perturb} - Similarity: {print_similar}")
+            print_similar = round(self.current_similarity * 100, 1)
+            print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
 
-        done = False
         if np.argmax(self.current_results) == self.new_index and self.current_similarity >= self.similarity_threshold:
             fake_image = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
             cv2.imwrite(f"Fake{self.image_file}", fake_image)

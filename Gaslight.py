@@ -35,7 +35,7 @@ render_interval = 100
 #Save image after how many steps. Set to 0 for no save.
 save_interval = 1000
 
-#Which RL framework to use (PPO, TD3)
-framework = "PPO"
+#Which RL framework to use (A2C, PPO, TD3)
+framework = "A2C"
 
 run(image_file, victim, classes, new_class, action, similarity, scale_image, checkpoint_file, render_interval, save_interval, framework)

@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 
 from MorphEnv import MorphEnv
-from stable_baselines3 import PPO, TD3
+from stable_baselines3 import PPO, TD3, A2C
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 
@@ -60,12 +60,18 @@ def run(image_file, victim, classes, new_class, action=0, similarity=0.9, scale_
     
     elif framework == "PPO":
         policy_name = "CnnPolicy"
-        n_timesteps = 100000
+        n_timesteps = 1000000
         batch_size = 8
         config = PPO(policy_name, env, batch_size=batch_size)
         config.learn(n_timesteps, progress_bar=True)
 
+    elif framework == "A2C":
+        policy_name = "CnnPolicy"
+        n_timesteps = 1000000
+        config = A2C(policy_name, env)
+        config.learn(n_timesteps, progress_bar=True)
+
     else:
-        raise Exception(f"Unknown Framework: {framework} - Available Frameworks: (PPO, TD3)")
+        raise Exception(f"Unknown Framework: {framework} - Available Frameworks: (A2C, PPO, TD3)")
 
     print("Could not finish morph. Please start again with checkpoint image.")
