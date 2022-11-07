@@ -8,7 +8,7 @@ import numpy as np
 from gym.spaces import Box
 
 class MorphEnv(gym.Env):
-    def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.9, scale_image=True, checkpoint_image=None, render_interval=0, save_interval=1000):
+    def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.9, scale_image=True, render_interval=0, save_interval=1000):
         self.observation_space = Box(low=0, high=255, shape=image.shape, dtype=np.uint8)
         
         self.action = action
@@ -24,10 +24,7 @@ class MorphEnv(gym.Env):
             raise Exception("Action must be an integer between 0-3")
         
         self.original_image = copy.deepcopy(image)
-        if checkpoint_image is None:
-            self.perturb_image = copy.deepcopy(image)
-        else:
-            self.perturb_image = copy.deepcopy(checkpoint_image)
+        self.perturb_image = copy.deepcopy(image)
 
         self.shape = image.shape
         self.image_file = image_file
@@ -70,19 +67,19 @@ class MorphEnv(gym.Env):
             row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
             col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
             color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
-            pixel_change = action[3]
+            pixel_change = np.uint8(np.round(action[3] * 255))
 
             if pixel_change < 0:
                 #check for overflow
-                if (self.perturb_image[row][col][color] - np.uint8(1) > self.perturb_image[row][col][color]):
+                if (self.perturb_image[row][col][color] - pixel_change > self.perturb_image[row][col][color]):
                     self.perturb_image[row][col][color] = 0
                 else:
-                    self.perturb_image[row][col][color] -= 1
+                    self.perturb_image[row][col][color] -= pixel_change
             else:
-                if (self.perturb_image[row][col][color] + np.uint8(1) < self.perturb_image[row][col][color]):
+                if (self.perturb_image[row][col][color] + pixel_change < self.perturb_image[row][col][color]):
                     self.perturb_image[row][col][color] = 255
                 else:
-                    self.perturb_image[row][col][color] += 1
+                    self.perturb_image[row][col][color] += pixel_change
         
         elif self.action == 1:
             row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
@@ -96,19 +93,19 @@ class MorphEnv(gym.Env):
             for row in range(self.shape[0]):
                 for col in range(self.shape[1]):
                     for color in range(self.shape[2]):
-                        pixel_change = action[row][col][color]
+                        pixel_change = np.uint8(np.round(action[row][col][color] * 255))
 
                         if pixel_change < 0:
                             #check for overflow
-                            if (self.perturb_image[row][col][color] - np.uint8(1) > self.perturb_image[row][col][color]):
+                            if (self.perturb_image[row][col][color] - pixel_change > self.perturb_image[row][col][color]):
                                 self.perturb_image[row][col][color] = 0
                             else:
-                                self.perturb_image[row][col][color] -= 1
+                                self.perturb_image[row][col][color] -= pixel_change
                         else:
-                            if (self.perturb_image[row][col][color] + np.uint8(1) < self.perturb_image[row][col][color]):
+                            if (self.perturb_image[row][col][color] + pixel_change < self.perturb_image[row][col][color]):
                                 self.perturb_image[row][col][color] = 255
                             else:
-                                self.perturb_image[row][col][color] += 1
+                                self.perturb_image[row][col][color] += pixel_change
 
         elif self.action == 3:
             for row in range(self.shape[0]):
@@ -116,10 +113,6 @@ class MorphEnv(gym.Env):
                     for color in range(self.shape[2]):
                         pixel_change = np.uint8(np.round(action[row][col][color] * 255.0))
                         self.perturb_image[row][col][color] = pixel_change
-
-        if self.save_interval > 0 and self.steps % self.save_interval == 0:
-            checkpoint_image = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
-            cv2.imwrite(f"Checkpoint{self.image_file}", checkpoint_image)
 
         self.current_results = self.predict()
         self.current_perturbance = self.current_results[self.new_index]
@@ -138,9 +131,10 @@ class MorphEnv(gym.Env):
         # reward = delta_perturbance * delta_similarity
 
         reward = self.current_perturbance * self.current_similarity
+        done = self.current_similarity < self.similarity_threshold
 
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
-            self.render()
+            # self.render()
             print_perturb = np.format_float_scientific(self.current_perturbance, 3)
             print_similar = round(self.current_similarity * 100, 1)
             print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
@@ -153,7 +147,7 @@ class MorphEnv(gym.Env):
         
         self.old_perturbance = self.current_perturbance
         self.old_similarity = self.current_similarity        
-        return self.perturb_image, reward, False, {}
+        return self.perturb_image, reward, done, {}
 
     def reset(self):
         self.perturb_image = copy.deepcopy(self.original_image)

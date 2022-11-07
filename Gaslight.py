@@ -3,9 +3,6 @@ from MorphEngine import run
 #Filename of image to be morphed
 image_file = "MNIST.png"
 
-#If Gaslight has created a checkpoint image, put its filename here.
-checkpoint_file = None
-
 #Victim model to misclassify (works for TF models only)
 victim = "mnist"
 
@@ -38,4 +35,7 @@ save_interval = 1000
 #Which RL framework to use (A2C, PPO, TD3)
 framework = "A2C"
 
-run(image_file, victim, classes, new_class, action, similarity, scale_image, checkpoint_file, render_interval, save_interval, framework)
+#Which RL model to use (If it doesn't exist, it will be created)
+rl_model = "A2CMNIST.zip"
+
+run(image_file, victim, classes, new_class, action, similarity, scale_image, render_interval, save_interval, framework, rl_model)
