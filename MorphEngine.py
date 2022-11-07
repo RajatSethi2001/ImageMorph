@@ -1,15 +1,14 @@
 import cv2
 import numpy as np
 import tensorflow as tf
+
 from MorphEnv import MorphEnv
-from os.path import exists
-from tensorflow.keras import datasets, layers, models
 from stable_baselines3 import PPO, TD3
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 
 def run(image_file, victim, classes, new_class, action=0, similarity=0.9, scale_image=True, checkpoint_file=None, render_interval=0, save_interval=1000, framework="PPO"):
-    model_victim = models.load_model(victim)
+    model_victim = tf.keras.models.load_model(victim)
     model_config = model_victim.get_config()
     dimensions = model_config["layers"][0]["config"]["batch_input_shape"][1::]
     

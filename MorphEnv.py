@@ -2,14 +2,10 @@ import copy
 import cv2
 import gym
 import math
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import tensorflow as tf
-import time
 
 from gym.spaces import Box
-from tensorflow.keras import datasets, layers, models
 
 class MorphEnv(gym.Env):
     def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.9, scale_image=True, checkpoint_image=None, render_interval=0, save_interval=1000):
@@ -137,8 +133,17 @@ class MorphEnv(gym.Env):
         
         self.current_similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
         
+        # delta_perturbance = self.current_perturbance - self.old_perturbance
+        # delta_similarity = self.current_similarity - self.old_similarity
+        # reward = delta_perturbance * delta_similarity
+
+        reward = self.current_perturbance * self.current_similarity
+
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
-            self.render()
+            #self.render()
+            print_perturb = np.format_float_scientific(self.current_perturbance, 3)
+            print_similar = np.format_float_scientific(self.current_similarity, 3)
+            print(f"Perturbance: {print_perturb} - Similarity: {print_similar}")
 
         done = False
         if np.argmax(self.current_results) == self.new_index and self.current_similarity >= self.similarity_threshold:
@@ -147,12 +152,6 @@ class MorphEnv(gym.Env):
             input("Successful perturb! Press anywhere to continue")
             exit()
         
-        # delta_perturbance = self.current_perturbance - self.old_perturbance
-        # delta_similarity = self.current_similarity - self.old_similarity
-        # reward = delta_perturbance * delta_similarity
-
-        reward = self.current_perturbance * self.current_similarity
-
         self.old_perturbance = self.current_perturbance
         self.old_similarity = self.current_similarity        
         return self.perturb_image, reward, False, {}
