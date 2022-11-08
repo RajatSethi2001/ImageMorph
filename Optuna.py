@@ -14,8 +14,8 @@ victim = "mnist"
 classes = [x for x in range(10)]
 new_class = 5
 scale_image = True
-action = 0
-similarity = 0.9
+action = 1
+similarity = 0.8
 framework = "A2C"
 param_file = "A2C-Params.pkl"
 trials = 50
@@ -74,7 +74,7 @@ class ParamFinder:
 
     def run(self):
         if self.framework == "A2C":
-            self.study.optimize(self.optimize_a2c, n_trials=self.trials, show_progress_bar=True)
+            self.study.optimize(self.optimize_a2c, n_trials=self.trials)
         else:
             raise Exception(f"Unknown Framework: {self.framework} - Available Frameworks: (A2C)")
         
@@ -108,27 +108,30 @@ class ParamFinder:
         model = A2C("CnnPolicy", self.env, **hyperparams)
         model.learn(self.timesteps, progress_bar=True)
 
-        last_reward = 0
-        same_reward_count = 0
-        reward_total = 0
-        obs = self.env.reset()
-        reward = 0
-        done = False
-        while not done:
-            action, _ = model.predict(obs)
-            obs, reward, done, _ = self.env.step(action)
-            reward_total += reward
-            if reward == last_reward:
-                same_reward_count += 1
-                if same_reward_count > 4:
-                    obs = self.env.reset()
-                    done = True
-            else:
-                same_reward_count = 0
-                last_reward = reward
+        rewards = []
+        for episode in range(4):
+            last_reward = 0
+            same_reward_count = 0
+            reward_total = 0
+            obs = self.env.reset()
+            reward = 0
+            done = False
+            while not done:
+                action, _ = model.predict(obs)
+                obs, reward, done, _ = self.env.step(action)
+                reward_total += reward
+                if reward == last_reward:
+                    same_reward_count += 1
+                    if same_reward_count > 4:
+                        obs = self.env.reset()
+                        done = True
+                else:
+                    same_reward_count = 0
+                    last_reward = reward
+            rewards.append(reward_total)
         
         pickle.dump(self.study, open(self.param_file, 'wb'))
-        return np.mean(reward_total)
+        return np.mean(rewards)
 
 if __name__=='__main__':
     param_finder = ParamFinder(image_file, victim, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps)

@@ -24,7 +24,7 @@ scale_image = True
 action = 0
 
 #Minimum similarity needed for a successful morph [0-1]
-similarity = 0.9
+similarity = 0.8
 
 #Render images after how many steps. Set to 0 for no render.
 render_interval = 100
