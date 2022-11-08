@@ -126,12 +126,14 @@ class MorphEnv(gym.Env):
         
         self.current_similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
         
-        # delta_perturbance = self.current_perturbance - self.old_perturbance
+        delta_perturbance = self.current_perturbance - self.old_perturbance
         # delta_similarity = self.current_similarity - self.old_similarity
         # reward = delta_perturbance * delta_similarity
 
-        reward = self.current_perturbance * self.current_similarity
+        reward = delta_perturbance
         done = self.current_similarity < self.similarity_threshold
+        if done:
+            reward = 0
 
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
             # self.render()
