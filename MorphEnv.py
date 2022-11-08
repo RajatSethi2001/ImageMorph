@@ -8,7 +8,7 @@ import numpy as np
 from gym.spaces import Box
 
 class MorphEnv(gym.Env):
-    def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.9, scale_image=True, render_interval=0, save_interval=1000):
+    def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.9, scale_image=True, render_interval=0):
         self.observation_space = Box(low=0, high=255, shape=image.shape, dtype=np.uint8)
         
         self.action = action
@@ -58,7 +58,6 @@ class MorphEnv(gym.Env):
 
         self.steps = 0
         self.render_interval = render_interval
-        self.save_interval = save_interval
 
     def step(self, action):
         self.steps += 1
@@ -71,10 +70,10 @@ class MorphEnv(gym.Env):
 
             if pixel_change < 0:
                 #check for overflow
-                if (self.perturb_image[row][col][color] - pixel_change > self.perturb_image[row][col][color]):
+                if (self.perturb_image[row][col][color] + pixel_change > self.perturb_image[row][col][color]):
                     self.perturb_image[row][col][color] = 0
                 else:
-                    self.perturb_image[row][col][color] -= pixel_change
+                    self.perturb_image[row][col][color] += pixel_change
             else:
                 if (self.perturb_image[row][col][color] + pixel_change < self.perturb_image[row][col][color]):
                     self.perturb_image[row][col][color] = 255
@@ -97,10 +96,10 @@ class MorphEnv(gym.Env):
 
                         if pixel_change < 0:
                             #check for overflow
-                            if (self.perturb_image[row][col][color] - pixel_change > self.perturb_image[row][col][color]):
+                            if (self.perturb_image[row][col][color] + pixel_change > self.perturb_image[row][col][color]):
                                 self.perturb_image[row][col][color] = 0
                             else:
-                                self.perturb_image[row][col][color] -= pixel_change
+                                self.perturb_image[row][col][color] += pixel_change
                         else:
                             if (self.perturb_image[row][col][color] + pixel_change < self.perturb_image[row][col][color]):
                                 self.perturb_image[row][col][color] = 255
@@ -126,12 +125,12 @@ class MorphEnv(gym.Env):
         
         self.current_similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
         
-        delta_perturbance = self.current_perturbance - self.old_perturbance
+        # delta_perturbance = self.current_perturbance - self.old_perturbance
         # delta_similarity = self.current_similarity - self.old_similarity
         # reward = delta_perturbance * delta_similarity
 
-        reward = delta_perturbance
-        done = self.current_similarity < self.similarity_threshold
+        reward = self.current_perturbance * self.current_similarity
+        done = (self.current_similarity < self.similarity_threshold)
         if done:
             reward = 0
 

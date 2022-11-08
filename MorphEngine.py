@@ -54,7 +54,7 @@ class MorphEngine:
         if greyscale:
             image_input = image_input.reshape(image_input.shape + (1,))
 
-        self.env = MorphEnv(model_victim, image_input, self.image_file, self.classes, self.new_class, self.action, self.similarity, self.scale_image, self.render_interval, self.save_interval)
+        self.env = MorphEnv(model_victim, image_input, self.image_file, self.classes, self.new_class, self.action, self.similarity, self.scale_image, self.render_interval)
         n_timesteps = self.save_interval
 
         if self.framework not in {"A2C", "PPO", "TD3"}:
@@ -69,16 +69,7 @@ class MorphEngine:
                 if self.param_file is not None:
                     study = pickle.load(open(self.param_file, 'rb'))
                     hyperparams = study.best_params
-                    n_steps = hyperparams["n_steps"]
-                    gamma = hyperparams["gamma"]
-                    gae_lambda = hyperparams["gae_lambda"]
-                    learning_rate = hyperparams["learning_rate"]
-                    normalize_advantage = hyperparams["normalize_advantage"]
-                    max_grad_norm = hyperparams["max_grad_norm"]
-                    use_rms_prop = hyperparams["use_rms_prop"]
-                    vf_coef = hyperparams["vf_coef"]
-                    policy_kwargs = hyperparams["policy_kwargs"]
-                    model_attack = A2C(policy_name, self.env, n_steps=n_steps, gamma=gamma, gae_lambda=gae_lambda, learning_rate=learning_rate, normalize_advantage=normalize_advantage, max_grad_norm=max_grad_norm, use_rms_prop=use_rms_prop, vf_coef=vf_coef, policy_kwargs=policy_kwargs)
+                    model_attack = A2C(policy_name, self.env, **hyperparams)
                 else:
                     model_attack = A2C(policy_name, self.env)
             elif self.framework == "PPO":
