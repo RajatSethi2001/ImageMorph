@@ -7,9 +7,21 @@ import tensorflow as tf
 from MorphEnv import MorphEnv
 from os.path import exists
 from stable_baselines3 import PPO, TD3, A2C
+from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
 from torch import nn as nn
+
+class MorphCheckpoint(CheckpointCallback):
+    def __init__(self, save_interval, rl_model):
+        super().__init__(save_interval, ".", name_prefix=rl_model)
+        self.save_interval = save_interval
+        self.rl_model = rl_model
+    
+    def _on_step(self) -> bool:
+        if self.n_calls % self.save_interval == 0:
+            self.model.save(self.rl_model)
+        return True
 
 class MorphEngine:
     def __init__(self, image_file, victim, classes, new_class, action=0, similarity=0.9, scale_image=True, render_interval=0, save_interval=1000, framework="PPO", rl_model="DefaultModel.zip", param_file=None):
@@ -55,7 +67,7 @@ class MorphEngine:
             image_input = image_input.reshape(image_input.shape + (1,))
 
         self.env = MorphEnv(model_victim, image_input, self.image_file, self.classes, self.new_class, self.action, self.similarity, self.scale_image, self.render_interval)
-        n_timesteps = self.save_interval
+        checkpoint_callback = MorphCheckpoint(self.save_interval, self.rl_model)
 
         if self.framework not in {"A2C", "PPO", "TD3"}:
             raise Exception(f"Unknown Framework: {self.framework} - Available Frameworks: (A2C, PPO, TD3)")
@@ -80,6 +92,4 @@ class MorphEngine:
                 action_noise = OrnsteinUhlenbeckActionNoise(np.zeros(n_actions), np.ones(n_actions) * 0.5)
                 model_attack = TD3(policy_name, self.env, action_noise=action_noise)
         
-        while True:
-            model_attack.learn(n_timesteps, progress_bar=True)
-            model_attack.save(f"{self.rl_model}")
+        model_attack.learn(100000, progress_bar=True, callback=checkpoint_callback)

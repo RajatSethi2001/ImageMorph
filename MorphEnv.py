@@ -130,21 +130,23 @@ class MorphEnv(gym.Env):
         # reward = delta_perturbance * delta_similarity
 
         reward = self.current_perturbance * self.current_similarity
-        done = (self.current_similarity < self.similarity_threshold)
-        if done:
-            reward = 0
+        # done = (self.current_similarity < self.similarity_threshold)
+        # if done:
+        #     reward = 0
 
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
             # self.render()
             print_perturb = np.format_float_scientific(self.current_perturbance, 3)
             print_similar = round(self.current_similarity * 100, 1)
             print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
-
-        if np.argmax(self.current_results) == self.new_index and self.current_similarity >= self.similarity_threshold:
+        
+        # and self.current_similarity >= self.similarity_threshold
+        done = False
+        if np.argmax(self.current_results) == self.new_index:
             fake_image = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
             cv2.imwrite(f"Fake{self.image_file}", fake_image)
-            input("Successful perturb! Press anywhere to continue")
-            exit()
+            done = True
+            input("Successful perturb! Press anywhere to continue training for a better result (or CTRL+C to exit)")
         
         self.old_perturbance = self.current_perturbance
         self.old_similarity = self.current_similarity        

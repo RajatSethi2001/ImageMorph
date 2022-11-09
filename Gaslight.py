@@ -21,10 +21,10 @@ scale_image = True
 #Action 1 - Edit one pixel at a time by changing it to a value between [0-255]
 #Action 2 - Edit all pixels at a time by -255 or +255
 #Action 3 - Edit all pixels at a time by changing it to a value between [0-255]
-action = 0
+action = 1
 
 #Minimum similarity needed for a successful morph [0-1]
-similarity = 0.8
+similarity = 0.7
 
 #Render images after how many steps. Set to 0 for no render.
 render_interval = 100

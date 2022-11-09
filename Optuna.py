@@ -131,6 +131,7 @@ class ParamFinder:
             rewards.append(reward_total)
         
         pickle.dump(self.study, open(self.param_file, 'wb'))
+        print(rewards)
         return np.mean(rewards)
 
 if __name__=='__main__':
