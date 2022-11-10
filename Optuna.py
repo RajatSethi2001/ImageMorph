@@ -10,7 +10,7 @@ from stable_baselines3 import PPO, TD3, A2C
 from torch import nn as nn
 
 image_file = "MNIST.png"
-victim = "mnist"
+victim_file = "mnist"
 classes = [x for x in range(10)]
 new_class = 5
 scale_image = True
@@ -22,9 +22,9 @@ trials = 50
 timesteps = 1000
 
 class ParamFinder:
-    def __init__(self, image_file, victim, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps):
+    def __init__(self, image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps):
         self.image_file = image_file
-        self.victim = tf.keras.models.load_model(victim)
+        self.victim = tf.keras.models.load_model(victim_file)
         self.classes = classes
         self.new_class = new_class
         self.scale_image = scale_image
@@ -40,8 +40,6 @@ class ParamFinder:
             self.study = pickle.load(open(self.param_file, 'rb'))
         else:
             self.study = optuna.create_study(direction="maximize")
-
-        self.env = MorphEnv(self.victim, self.image, self.image_file, self.classes, self.new_class, self.action, self.similarity, self.scale_image)
     
     def get_image(self):
         model_config = self.victim.get_config()
@@ -90,6 +88,8 @@ class ParamFinder:
         learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2)
         ent_coef = trial.suggest_float("ent_coef", 0.000001, 0.1)
         vf_coef = trial.suggest_float("vf_coef", 0.1, 1)
+        perturb_exp = trial.suggest_float("perturb_exp", 0, 1)
+        similar_exp = trial.suggest_float("similar_exp", 0, 1)
 
         return {
             "n_steps": n_steps,
@@ -101,41 +101,40 @@ class ParamFinder:
             "max_grad_norm": max_grad_norm,
             "use_rms_prop": use_rms_prop,
             "vf_coef": vf_coef,
+            "perturb_exp": perturb_exp,
+            "similar_exp": similar_exp,
         }
 
     def optimize_a2c(self, trial):
         hyperparams = self.get_a2c(trial)
-        model = A2C("CnnPolicy", self.env, **hyperparams)
+        perturb_exp = hyperparams.pop("perturb_exp")
+        similar_exp = hyperparams.pop("similar_exp")
+        env = MorphEnv(self.victim, self.image, self.image_file, self.classes, self.new_class, self.action, self.similarity, self.scale_image, perturb_exp, similar_exp)
+        model = A2C("CnnPolicy", env, **hyperparams)
         model.learn(self.timesteps, progress_bar=True)
 
         rewards = []
         for episode in range(4):
-            last_reward = 0
-            same_reward_count = 0
-            reward_total = 0
-            obs = self.env.reset()
-            reward = 0
-            done = False
-            while not done:
+            obs = env.reset()
+            action, _ = model.predict(obs)
+            obs, _, _, info = env.step(action)
+            start_perturb = info["perturb"]
+            start_similar = info["similar"]
+            for step in range(200):
                 action, _ = model.predict(obs)
-                obs, reward, done, _ = self.env.step(action)
-                reward_total += reward
-                if reward == last_reward:
-                    same_reward_count += 1
-                    if same_reward_count > 4:
-                        obs = self.env.reset()
-                        done = True
-                else:
-                    same_reward_count = 0
-                    last_reward = reward
-            rewards.append(reward_total)
+                obs, _, _, _ = env.step(action)
+            action, _ = model.predict(obs)
+            _, _, _, info = env.step(action)
+            end_perturb = info["perturb"]
+            end_similar = info["similar"]
+            rewards.append((end_perturb * end_similar) / (start_perturb * start_similar))
         
         pickle.dump(self.study, open(self.param_file, 'wb'))
         print(rewards)
         return np.mean(rewards)
 
 if __name__=='__main__':
-    param_finder = ParamFinder(image_file, victim, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps)
+    param_finder = ParamFinder(image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps)
     param_finder.run()
 
 

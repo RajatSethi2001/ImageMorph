@@ -8,7 +8,7 @@ import numpy as np
 from gym.spaces import Box
 
 class MorphEnv(gym.Env):
-    def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.9, scale_image=True, render_interval=0):
+    def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.7, scale_image=True, perturb_exp=1, similar_exp=1, render_level=0, render_interval=0, save_interval=0, checkpoint_image=None):
         self.observation_space = Box(low=0, high=255, shape=image.shape, dtype=np.uint8)
         
         self.action = action
@@ -24,7 +24,12 @@ class MorphEnv(gym.Env):
             raise Exception("Action must be an integer between 0-3")
         
         self.original_image = copy.deepcopy(image)
-        self.perturb_image = copy.deepcopy(image)
+        if checkpoint_image is None:
+            self.checkpoint_image = None
+            self.perturb_image = copy.deepcopy(image)
+        else:
+            self.checkpoint_image = checkpoint_image
+            self.perturb_image = copy.deepcopy(checkpoint_image)
 
         self.shape = image.shape
         self.image_file = image_file
@@ -41,7 +46,11 @@ class MorphEnv(gym.Env):
         self.new_label = new_class
         self.new_index = self.classes.index(new_class)
 
+        self.best_similarity = 0
         self.similarity_threshold = similarity
+
+        self.perturb_exp = perturb_exp
+        self.similar_exp = similar_exp
 
         self.old_perturbance = results[self.new_index]
         self.old_similarity = 1.0
@@ -49,6 +58,8 @@ class MorphEnv(gym.Env):
         self.current_results = None
         self.current_perturbance = None
         self.current_similarity = None
+
+        self.render_level = render_level
 
         plt.ion()
         self.figure = plt.figure(figsize=(9,3))
@@ -58,6 +69,7 @@ class MorphEnv(gym.Env):
 
         self.steps = 0
         self.render_interval = render_interval
+        self.save_interval = save_interval
 
     def step(self, action):
         self.steps += 1
@@ -129,31 +141,48 @@ class MorphEnv(gym.Env):
         # delta_similarity = self.current_similarity - self.old_similarity
         # reward = delta_perturbance * delta_similarity
 
-        reward = self.current_perturbance * self.current_similarity
+        reward = (self.current_perturbance ** self.perturb_exp) * (self.current_similarity ** self.similar_exp)
         # done = (self.current_similarity < self.similarity_threshold)
         # if done:
         #     reward = 0
 
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
-            # self.render()
-            print_perturb = np.format_float_scientific(self.current_perturbance, 3)
-            print_similar = round(self.current_similarity * 100, 1)
-            print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
-        
-        # and self.current_similarity >= self.similarity_threshold
-        done = False
+            if self.render_level > 0:
+                print_perturb = np.format_float_scientific(self.current_perturbance, 3)
+                print_similar = round(self.current_similarity * 100, 1)
+                print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
+            if self.render_level > 1:
+                self.render()
+            
+        if self.save_interval > 0 and self.steps % self.save_interval == 0:
+            checkpoint_image = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
+            checkpoint_image_file = f"Checkpoint{self.image_file}"
+            cv2.imwrite(checkpoint_image_file, checkpoint_image)
+            print(f"Checkpoint image saved at {checkpoint_image_file}")
+
         if np.argmax(self.current_results) == self.new_index:
+            reward = (self.current_similarity ** self.similar_exp)
             fake_image = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
-            cv2.imwrite(f"Fake{self.image_file}", fake_image)
-            done = True
-            input("Successful perturb! Press anywhere to continue training for a better result (or CTRL+C to exit)")
+            if self.current_similarity > self.similarity_threshold:
+                fake_image_file = f"Fake{self.image_file}"
+                cv2.imwrite(fake_image_file, fake_image)
+                print(f"Successful perturb! Image saved at {fake_image_file}")
+                exit()
+            elif self.current_similarity > self.best_similarity:
+                self.best_similarity = self.current_similarity
+                fake_image_file = f"SemiFake{self.image_file}"
+                cv2.imwrite(fake_image_file, fake_image)
+                print(f"Semi-successful perturb! Not enough similarity, but image saved at {fake_image_file}")
         
         self.old_perturbance = self.current_perturbance
         self.old_similarity = self.current_similarity        
-        return self.perturb_image, reward, done, {}
+        return self.perturb_image, reward, False, {"perturb":self.current_perturbance, "similar":self.current_similarity}
 
     def reset(self):
-        self.perturb_image = copy.deepcopy(self.original_image)
+        if self.checkpoint_image is None:
+            self.perturb_image = copy.deepcopy(self.original_image)
+        else:
+            self.perturb_image = copy.deepcopy(self.checkpoint_image)
         results = self.predict()
         self.old_perturbance = results[self.new_index]
         self.old_similarity = 1.0
