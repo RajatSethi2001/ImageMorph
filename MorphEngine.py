@@ -78,6 +78,8 @@ class MorphEngine:
                 checkpoint_input = checkpoint_input.reshape(checkpoint_input.shape + (1,))
 
         hyperparams = {}
+        perturb_exp = 1
+        similar_exp = 1
         if self.param_file is not None:
             study = pickle.load(open(self.param_file, 'rb'))
             hyperparams = study.best_params
@@ -91,7 +93,7 @@ class MorphEngine:
             raise Exception(f"Unknown Framework: {self.framework} - Available Frameworks: (A2C, PPO, TD3)")
 
         if exists(self.rl_model):
-            model_attack = eval(f"{self.framework}.load(\"{self.rl_model}\", env=self.env, **hyperparams)")
+            model_attack = eval(f"{self.framework}.load(\"{self.rl_model}\", env=self.env)")
 
         else:
             policy_name = "CnnPolicy"

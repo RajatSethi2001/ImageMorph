@@ -18,11 +18,13 @@ action = 1
 similarity = 0.8
 framework = "A2C"
 param_file = "A2C-Params.pkl"
-trials = 50
+trials = 20
 timesteps = 1000
+episodes = 1
+steps_per_episode = 1000
 
 class ParamFinder:
-    def __init__(self, image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps):
+    def __init__(self, image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps, episodes, steps_per_episode):
         self.image_file = image_file
         self.victim = tf.keras.models.load_model(victim_file)
         self.classes = classes
@@ -34,6 +36,8 @@ class ParamFinder:
         self.param_file = param_file
         self.trials = trials
         self.timesteps = timesteps
+        self.episodes = episodes
+        self.steps_per_episode = steps_per_episode
 
         self.image = self.get_image()
         if exists(param_file):
@@ -85,7 +89,7 @@ class ParamFinder:
         use_rms_prop = trial.suggest_categorical("use_rms_prop", [False, True])
         gae_lambda = trial.suggest_categorical("gae_lambda", [0.8, 0.9, 0.92, 0.95, 0.98, 0.99, 1.0])
         n_steps = trial.suggest_categorical("n_steps", [8, 16, 32, 64, 128, 256])
-        learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2)
+        learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-2)
         ent_coef = trial.suggest_float("ent_coef", 0.000001, 0.1)
         vf_coef = trial.suggest_float("vf_coef", 0.1, 1)
         perturb_exp = trial.suggest_float("perturb_exp", 0, 1)
@@ -106,6 +110,7 @@ class ParamFinder:
         }
 
     def optimize_a2c(self, trial):
+        pickle.dump(self.study, open(self.param_file, 'wb'))
         hyperparams = self.get_a2c(trial)
         perturb_exp = hyperparams.pop("perturb_exp")
         similar_exp = hyperparams.pop("similar_exp")
@@ -114,27 +119,25 @@ class ParamFinder:
         model.learn(self.timesteps, progress_bar=True)
 
         rewards = []
-        for episode in range(4):
+        for episode in range(self.episodes):
             obs = env.reset()
-            action, _ = model.predict(obs)
-            obs, _, _, info = env.step(action)
-            start_perturb = info["perturb"]
-            start_similar = info["similar"]
-            for step in range(200):
+            perturb_total = 0
+            similar_total = 0
+            for step in range(self.steps_per_episode):
                 action, _ = model.predict(obs)
-                obs, _, _, _ = env.step(action)
-            action, _ = model.predict(obs)
-            _, _, _, info = env.step(action)
-            end_perturb = info["perturb"]
-            end_similar = info["similar"]
-            rewards.append((end_perturb * end_similar) / (start_perturb * start_similar))
+                obs, _, _, info = env.step(action)
+                perturb_total += info["perturb"]
+                similar_total += info["similar"]
+
+            perturb_mean = perturb_total / self.steps_per_episode
+            similar_mean = similar_total / self.steps_per_episode
+            rewards.append(perturb_mean * similar_mean)
         
-        pickle.dump(self.study, open(self.param_file, 'wb'))
         print(rewards)
         return np.mean(rewards)
 
 if __name__=='__main__':
-    param_finder = ParamFinder(image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps)
+    param_finder = ParamFinder(image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps, episodes, steps_per_episode)
     param_finder.run()
 
 
