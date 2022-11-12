@@ -80,8 +80,7 @@ class MorphEnv(gym.Env):
         self.new_class = new_class
 
         self.best_reward = 0
-        self.best_reward_image = None
-
+        self.best_perturbance = 0
         self.best_similarity = 0
         self.similarity_threshold = similarity
 
@@ -103,7 +102,7 @@ class MorphEnv(gym.Env):
 
     def step(self, action):
         self.steps += 1
-
+        perturb_test = copy.deepcopy(self.perturb_image)
         if self.action == 0:
             row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
             col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
@@ -112,15 +111,15 @@ class MorphEnv(gym.Env):
 
             if pixel_change < 0:
                 #check for overflow
-                if (self.perturb_image[row][col][color] + pixel_change > self.perturb_image[row][col][color]):
-                    self.perturb_image[row][col][color] = 0
+                if (perturb_test[row][col][color] + pixel_change > perturb_test[row][col][color]):
+                    perturb_test[row][col][color] = 0
                 else:
-                    self.perturb_image[row][col][color] += pixel_change
+                    perturb_test[row][col][color] += pixel_change
             else:
-                if (self.perturb_image[row][col][color] + pixel_change < self.perturb_image[row][col][color]):
-                    self.perturb_image[row][col][color] = 255
+                if (perturb_test[row][col][color] + pixel_change < perturb_test[row][col][color]):
+                    perturb_test[row][col][color] = 255
                 else:
-                    self.perturb_image[row][col][color] += pixel_change
+                    perturb_test[row][col][color] += pixel_change
         
         elif self.action == 1:
             row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
@@ -128,7 +127,7 @@ class MorphEnv(gym.Env):
             color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
             pixel_change = np.uint8(np.round(action[3] * 255))
 
-            self.perturb_image[row][col][color] = pixel_change
+            perturb_test[row][col][color] = pixel_change
 
         elif self.action == 2:
             for row in range(self.shape[0]):
@@ -138,26 +137,24 @@ class MorphEnv(gym.Env):
 
                         if pixel_change < 0:
                             #check for overflow
-                            if (self.perturb_image[row][col][color] + pixel_change > self.perturb_image[row][col][color]):
-                                self.perturb_image[row][col][color] = 0
+                            if (perturb_test[row][col][color] + pixel_change > perturb_test[row][col][color]):
+                                perturb_test[row][col][color] = 0
                             else:
-                                self.perturb_image[row][col][color] += pixel_change
+                                perturb_test[row][col][color] += pixel_change
                         else:
-                            if (self.perturb_image[row][col][color] + pixel_change < self.perturb_image[row][col][color]):
-                                self.perturb_image[row][col][color] = 255
+                            if (perturb_test[row][col][color] + pixel_change < perturb_test[row][col][color]):
+                                perturb_test[row][col][color] = 255
                             else:
-                                self.perturb_image[row][col][color] += pixel_change
+                                perturb_test[row][col][color] += pixel_change
 
         elif self.action == 3:
             for row in range(self.shape[0]):
                 for col in range(self.shape[1]):
                     for color in range(self.shape[2]):
                         pixel_change = np.uint8(np.round(action[row][col][color] * 255.0))
-                        self.perturb_image[row][col][color] = pixel_change
+                        perturb_test[row][col][color] = pixel_change
 
-        self.perturb_image = np.clip(self.perturb_image, 0, 255, dtype=np.uint8)
-
-        image_input = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
+        image_input = cv2.resize(perturb_test, (self.dim_height, self.dim_width))
         if self.grayscale:
             image_input = image_input.reshape((self.dim_height, self.dim_width, 1))
         self.results = self.predict_wrapper(image_input, self.victim_data)
@@ -173,7 +170,7 @@ class MorphEnv(gym.Env):
         for row in range(self.shape[0]):
             for col in range(self.shape[1]):
                 for color in range(self.shape[2]):
-                    pixel_distance = ((int(self.perturb_image[row][col][color]) - int(self.original_image[row][col][color])) / 255.0) ** 2
+                    pixel_distance = ((int(perturb_test[row][col][color]) - int(self.original_image[row][col][color])) / 255.0) ** 2
                     euclid_distance += pixel_distance
         
         self.similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
@@ -189,18 +186,22 @@ class MorphEnv(gym.Env):
         reward = perturb_reward * similar_reward
         if reward > self.best_reward:
             self.best_reward = reward
-            self.best_reward_image = copy.deepcopy(self.perturb_image)
+            self.best_perturbance = self.perturbance
+            self.best_similarity = self.similarity
+            self.perturb_image = copy.deepcopy(perturb_test)
+        else:
+            reward = 0
 
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
             if self.render_level > 0:
-                print_perturb = np.format_float_scientific(self.perturbance, 3)
-                print_similar = round(self.similarity * 100, 1)
+                print_perturb = np.format_float_scientific(self.best_perturbance, 3)
+                print_similar = round(self.best_similarity * 100, 1)
                 print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
             if self.render_level > 1:
                 self.render()
             
         if self.save_interval > 0 and self.steps % self.save_interval == 0:
-            checkpoint_image = cv2.resize(self.best_reward_image, (self.dim_height, self.dim_height))
+            checkpoint_image = cv2.resize(self.perturb_image, (self.dim_height, self.dim_height))
             checkpoint_image_file = f"Checkpoint{self.image_file}"
             if self.checkpoint_file is not None:
                 checkpoint_image_file = self.checkpoint_file        
@@ -209,13 +210,12 @@ class MorphEnv(gym.Env):
 
         if (self.result_type == 'list' and np.argmax(self.results) == self.new_class) or (self.result_type == 'object' and self.results == self.new_class):
             fake_image = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
-            if self.similarity >= self.similarity_threshold:
+            if self.best_similarity >= self.similarity_threshold:
                 fake_image_file = f"Fake{self.image_file}"
                 cv2.imwrite(fake_image_file, fake_image)
                 print(f"Successful perturb! Image saved at {fake_image_file}")
                 exit()
-            elif self.similarity > self.best_similarity:
-                self.best_similarity = self.similarity
+            else:
                 fake_image_file = f"SemiFake{self.image_file}"
                 cv2.imwrite(fake_image_file, fake_image)
                 print(f"Semi-successful perturb! Not enough similarity, but image saved at {fake_image_file}")
@@ -228,6 +228,10 @@ class MorphEnv(gym.Env):
         else:
             self.perturb_image = copy.deepcopy(self.checkpoint_image)
         
+        self.best_reward = 0
+        self.best_perturbance = 0
+        self.best_similarity = 0
+
         self.results = None
         self.perturbance = None
         self.similarity = None
