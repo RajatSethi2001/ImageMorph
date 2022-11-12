@@ -10,6 +10,7 @@ from stable_baselines3 import PPO, TD3, A2C
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
+from stable_baselines3.common.vec_env import DummyVecEnv, VecCheckNan
 from torch import nn as nn
 
 class MorphCheckpoint(CheckpointCallback):
@@ -36,7 +37,7 @@ def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0
         raise Exception(f"Unknown Framework: {framework} - Available Frameworks: (A2C, PPO, TD3)")
 
     if exists(rl_model):
-        model_attack = eval(f"{framework}.load(\"{rl_model}\", env=self.env, **hyperparams)")
+        model_attack = eval(f"{framework}.load(\"{rl_model}\", env=env, **hyperparams)")
     
     else:
         policy_name = "CnnPolicy"

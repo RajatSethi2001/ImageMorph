@@ -4,6 +4,7 @@ import gym
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+np.seterr(all='raise')
 
 from gym.spaces import Box
 from os.path import exists
@@ -154,6 +155,8 @@ class MorphEnv(gym.Env):
                         pixel_change = np.uint8(np.round(action[row][col][color] * 255.0))
                         self.perturb_image[row][col][color] = pixel_change
 
+        self.perturb_image = np.clip(self.perturb_image, 0, 255, dtype=np.uint8)
+
         image_input = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
         if self.grayscale:
             image_input = image_input.reshape((self.dim_height, self.dim_width, 1))
@@ -216,8 +219,8 @@ class MorphEnv(gym.Env):
                 fake_image_file = f"SemiFake{self.image_file}"
                 cv2.imwrite(fake_image_file, fake_image)
                 print(f"Semi-successful perturb! Not enough similarity, but image saved at {fake_image_file}")
-               
-        return self.perturb_image, reward, False, {"perturb":self.perturbance, "similar":self.similarity}
+
+        return self.perturb_image, reward, False, {}
 
     def reset(self):
         if self.checkpoint_image is None:

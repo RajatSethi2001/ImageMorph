@@ -45,7 +45,7 @@ render_interval = 100
 save_interval = 1000
 
 #Checkpoint image to start perturbation. Set to None to use original
-checkpoint_file = None
+checkpoint_file = "CheckpointMNIST.png"
 
 #Which RL framework to use (A2C, PPO, TD3)
 framework = "A2C"
