@@ -85,8 +85,8 @@ class MorphEnv(gym.Env):
         self.similarity_threshold = similarity
 
         self.results = None
-        self.perturbance = None
-        self.similarity = None
+        # self.perturbance = None
+        # self.similarity = None
 
         self.render_level = render_level
 
@@ -159,12 +159,12 @@ class MorphEnv(gym.Env):
             image_input = image_input.reshape((self.dim_height, self.dim_width, 1))
         self.results = self.predict_wrapper(image_input, self.victim_data)
         if self.result_type == "list":
-            self.perturbance = self.results[self.new_class]
+            perturbance = self.results[self.new_class]
         else:
             if self.results == self.new_class:
-                self.perturbance = 1
+                perturbance = 1
             else:
-                self.perturbance = 0
+                perturbance = 0
 
         euclid_distance = 0
         for row in range(self.shape[0]):
@@ -173,21 +173,21 @@ class MorphEnv(gym.Env):
                     pixel_distance = ((int(perturb_test[row][col][color]) - int(self.original_image[row][col][color])) / 255.0) ** 2
                     euclid_distance += pixel_distance
         
-        self.similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
+        similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
 
-        perturb_reward = self.perturbance
-        if self.result_type == 'list' and np.argmax(self.results) == self.new_class:
-            perturb_reward = 1
+        # perturb_reward = self.perturbance
+        # if self.result_type == 'list' and np.argmax(self.results) == self.new_class:
+        #     perturb_reward = 1
         
-        similar_reward = self.similarity
-        if self.similarity >= self.similarity_threshold:
-            similar_reward = 1
+        # similar_reward = self.similarity
+        # if self.similarity >= self.similarity_threshold:
+        #     similar_reward = 1
         
-        reward = perturb_reward * similar_reward
+        reward = perturbance * similarity
         if reward > self.best_reward:
             self.best_reward = reward
-            self.best_perturbance = self.perturbance
-            self.best_similarity = self.similarity
+            self.best_perturbance = perturbance
+            self.best_similarity = similarity
             self.perturb_image = copy.deepcopy(perturb_test)
         else:
             reward = 0
@@ -233,8 +233,8 @@ class MorphEnv(gym.Env):
         self.best_similarity = 0
 
         self.results = None
-        self.perturbance = None
-        self.similarity = None
+        # self.perturbance = None
+        # self.similarity = None
         return self.perturb_image
 
     def render(self):
@@ -252,10 +252,10 @@ class MorphEnv(gym.Env):
         self.plot1.imshow(self.original_image, cmap='gray')
 
         color = 'red'
-        if self.similarity >= self.similarity_threshold:
+        if self.best_similarity >= self.similarity_threshold:
             color = 'green'
         
-        self.plot1.set_xlabel("Similarity = {}".format(round(self.similarity * 100, 1), color=color))
+        self.plot1.set_xlabel("Similarity = {}".format(round(self.best_similarity * 100, 1), color=color))
 
     def plot_morph(self):
         self.plot2.grid(False)
@@ -264,7 +264,7 @@ class MorphEnv(gym.Env):
 
         self.plot2.imshow(self.perturb_image, cmap='gray')
 
-        self.plot2.set_xlabel("Perturbance={:2.0f}".format(np.format_float_scientific(self.perturbance, 3)))
+        self.plot2.set_xlabel("Perturbance={:2.0f}".format(np.format_float_scientific(self.best_perturbance, 3)))
 
     # def plot_value_array(self):
     #     self.plot3.grid(False)
