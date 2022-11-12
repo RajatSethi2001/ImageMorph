@@ -7,29 +7,35 @@ import tensorflow as tf
 from MorphEnv import MorphEnv
 from os.path import exists
 from stable_baselines3 import PPO, TD3, A2C
+from tensorflow.keras import models
 from torch import nn as nn
 
+def predict_wrapper(image, victim_data):
+    victim = victim_data["model"]
+    return victim.predict(image / 255.0)
+
 image_file = "MNIST.png"
-victim_file = "mnist"
-classes = [x for x in range(10)]
+grayscale = True
+victim_data = {
+    "model": models.load_model("mnist")
+}
 new_class = 5
-scale_image = True
 action = 1
-similarity = 0.8
+similarity = 0.7
 framework = "A2C"
 param_file = "A2C-Params.pkl"
 trials = 20
 timesteps = 1000
-episodes = 1
-steps_per_episode = 1000
+episodes = 2
+steps_per_episode = 500
 
 class ParamFinder:
-    def __init__(self, image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps, episodes, steps_per_episode):
+    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, framework, param_file, trials, timesteps, episodes, steps_per_episode):
+        self.predict_wrapper = predict_wrapper
         self.image_file = image_file
-        self.victim = tf.keras.models.load_model(victim_file)
-        self.classes = classes
+        self.grayscale = grayscale
+        self.victim_data = victim_data
         self.new_class = new_class
-        self.scale_image = scale_image
         self.action = action
         self.similarity = similarity
         self.framework = framework
@@ -39,40 +45,10 @@ class ParamFinder:
         self.episodes = episodes
         self.steps_per_episode = steps_per_episode
 
-        self.image = self.get_image()
         if exists(param_file):
             self.study = pickle.load(open(self.param_file, 'rb'))
         else:
             self.study = optuna.create_study(direction="maximize")
-    
-    def get_image(self):
-        model_config = self.victim.get_config()
-        dimensions = model_config["layers"][0]["config"]["batch_input_shape"][1::]
-
-        greyscale = False
-        #If greyscale
-        if len(dimensions) == 2 or dimensions[2] == 1:
-            greyscale = True
-            image_input = cv2.imread(self.image_file, 0)
-                
-        #Else, image is a 3D RGB image
-        else:
-            image_input = cv2.imread(self.image_file)
-
-        #Determine the smaller dimension
-        min_length = min(dimensions[0], dimensions[1])
-        #Scale images (sb3 requires images to be > 36x36)
-        if min_length < 36:
-            scale = 36 / min_length
-            new_height = int(dimensions[0] * scale)
-            new_width = int(dimensions[1] * scale)
-            image_input = cv2.resize(image_input, (new_height, new_width))
-
-        #If greyscale, add an extra dimension (makes processing easier)
-        if greyscale:
-            image_input = image_input.reshape(image_input.shape + (1,))
-        
-        return image_input
 
     def run(self):
         if self.framework == "A2C":
@@ -92,8 +68,6 @@ class ParamFinder:
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-2)
         ent_coef = trial.suggest_float("ent_coef", 0.000001, 0.1)
         vf_coef = trial.suggest_float("vf_coef", 0.1, 1)
-        perturb_exp = trial.suggest_float("perturb_exp", 0, 1)
-        similar_exp = trial.suggest_float("similar_exp", 0, 1)
 
         return {
             "n_steps": n_steps,
@@ -105,39 +79,31 @@ class ParamFinder:
             "max_grad_norm": max_grad_norm,
             "use_rms_prop": use_rms_prop,
             "vf_coef": vf_coef,
-            "perturb_exp": perturb_exp,
-            "similar_exp": similar_exp,
         }
 
     def optimize_a2c(self, trial):
         pickle.dump(self.study, open(self.param_file, 'wb'))
         hyperparams = self.get_a2c(trial)
-        perturb_exp = hyperparams.pop("perturb_exp")
-        similar_exp = hyperparams.pop("similar_exp")
-        env = MorphEnv(self.victim, self.image, self.image_file, self.classes, self.new_class, self.action, self.similarity, self.scale_image, perturb_exp, similar_exp)
+        env = MorphEnv(self.predict_wrapper, self.image_file, self.grayscale, self.victim_data, self.new_class, self.action, self.similarity)
         model = A2C("CnnPolicy", env, **hyperparams)
         model.learn(self.timesteps, progress_bar=True)
 
         rewards = []
         for episode in range(self.episodes):
             obs = env.reset()
-            perturb_total = 0
-            similar_total = 0
+            reward_total = 0
             for step in range(self.steps_per_episode):
                 action, _ = model.predict(obs)
-                obs, _, _, info = env.step(action)
-                perturb_total += info["perturb"]
-                similar_total += info["similar"]
+                obs, reward, _, info = env.step(action)
+                reward_total += reward
 
-            perturb_mean = perturb_total / self.steps_per_episode
-            similar_mean = similar_total / self.steps_per_episode
-            rewards.append(perturb_mean * similar_mean)
+            rewards.append(reward_total)
         
         print(rewards)
         return np.mean(rewards)
 
 if __name__=='__main__':
-    param_finder = ParamFinder(image_file, victim_file, classes, new_class, scale_image, action, similarity, framework, param_file, trials, timesteps, episodes, steps_per_episode)
+    param_finder = ParamFinder(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, framework, param_file, trials, timesteps, episodes, steps_per_episode)
     param_finder.run()
 
 

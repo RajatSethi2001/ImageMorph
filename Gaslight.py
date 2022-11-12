@@ -1,16 +1,27 @@
-from MorphEngine import MorphEngine
+from MorphEngine import run
+from tensorflow.keras import models
+
+#Wrapper function that takes in the current perturbed image, the victim model, and any associated data.
+#The victim model should predict the class of the image, then return the outcome.
+#Can return either a list of numbers (for standard classifications) or an object (for total black-box)
+def predict_wrapper(image, victim_data):
+    victim = victim_data["model"]
+    return victim.predict(image / 255.0)
 
 #Filename of image to be morphed
 image_file = "MNIST.png"
 
-#Victim model to misclassify (works for TF models only)
-victim = "mnist"
+#Is the image grayscale? True for Grayscale, False for RGB.
+grayscale = True
 
-#List of classifications (ordered by how they come out of the model)
-#For example, MNIST would be [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-classes = [x for x in range(10)]
+#Data that predict_wrapper will use that contains victim model and other data-processing variables.
+victim_data = {
+    "model": models.load_model("mnist")
+}
 
-#Class name that the image should be misclassified to.
+# The intended outcome for perturbation.
+# If predict_wrapper returns a list of numbers, this is the index to maximize
+# If predict_wrapper returns an object, this is the intended value
 new_class = 5
 
 #Which action space to use (0-3)
@@ -21,10 +32,7 @@ new_class = 5
 action = 1
 
 #Minimum similarity needed for a successful morph [0-1]
-similarity = 0.8
-
-#Divide pixel values by 255 before plugging into model?
-scale_image = True
+similarity = 0.7
 
 #0 for no render, 1 for light render (only print), 2 for full render (pyplot graph)
 render_level = 1
@@ -47,5 +55,5 @@ rl_model = "A2CMNIST_Optuna.zip"
 #Which hyperparameter pickle file to use (Make sure it matches the framework)
 param_file = "A2C-Params.pkl"
 
-engine = MorphEngine(image_file, victim, classes, new_class, action, similarity, scale_image, render_level, render_interval, save_interval, checkpoint_file, framework, rl_model, param_file)
-engine.run()
+run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, render_interval, save_interval, checkpoint_file, framework, rl_model, param_file)
+

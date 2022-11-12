@@ -6,10 +6,55 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from gym.spaces import Box
+from os.path import exists
 
 class MorphEnv(gym.Env):
-    def __init__(self, model, image, image_file, classes, new_class, action=0, similarity=0.7, scale_image=True, perturb_exp=1, similar_exp=1, render_level=0, render_interval=0, save_interval=0, checkpoint_image=None):
-        self.observation_space = Box(low=0, high=255, shape=image.shape, dtype=np.uint8)
+    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, render_interval=0, save_interval=0, checkpoint_file=None):
+        self.predict_wrapper = predict_wrapper
+        self.victim_data = victim_data
+        self.image_file = image_file
+        self.checkpoint_file = checkpoint_file
+        self.checkpoint_image = None
+        self.grayscale = grayscale
+
+        if self.grayscale:
+            self.original_image = cv2.imread(self.image_file, 0)
+            if self.checkpoint_file is not None and exists(self.checkpoint_file):
+                self.checkpoint_image = cv2.imread(self.checkpoint_file, 0)
+        #Else, image is a 3D RGB image
+        else:
+            self.original_image = cv2.imread(self.image_file)
+            if self.checkpoint_file is not None and exists(self.checkpoint_file):
+                self.checkpoint_image = cv2.imread(self.checkpoint_file)
+        
+        self.dim_height = self.original_image.shape[0]
+        self.dim_width = self.original_image.shape[1]
+
+        #Determine the smaller dimension
+        min_length = min(self.dim_height, self.dim_width)
+        #Scale images (sb3 requires images to be > 36x36)
+        if min_length < 36:
+            scale = 36 / min_length
+            new_height = int(self.dim_height * scale)
+            new_width = int(self.dim_width * scale)
+            self.original_image = cv2.resize(self.original_image, (new_height, new_width))
+            if self.checkpoint_file is not None and exists(self.checkpoint_file): 
+                self.checkpoint_image = cv2.resize(self.checkpoint_image, (new_height, new_width))
+
+        #If greyscale, add an extra dimension (makes processing easier)
+        if self.grayscale:
+            self.original_image = self.original_image.reshape(self.original_image.shape + (1,))
+            if self.checkpoint_file is not None:
+                self.checkpoint_image = self.checkpoint_image.reshape(self.checkpoint_image.shape + (1,))
+
+        if self.checkpoint_image is None:
+            self.perturb_image = copy.deepcopy(self.original_image)
+        else:
+            self.perturb_image = copy.deepcopy(self.checkpoint_image)
+
+        self.shape = self.original_image.shape
+
+        self.observation_space = Box(low=0, high=255, shape=self.shape, dtype=np.uint8)
         
         self.action = action
         if action == 0:
@@ -17,55 +62,37 @@ class MorphEnv(gym.Env):
         elif action == 1:
             self.action_space = Box(low=0, high=1, shape=(4,), dtype=np.float32)
         elif action == 2:
-            self.action_space = Box(low=-1, high=1, shape=image.shape, dtype=np.float32)
+            self.action_space = Box(low=-1, high=1, shape=self.shape, dtype=np.float32)
         elif action == 3:
-            self.action_space = Box(low=0, high=1, shape=image.shape, dtype=np.float32)
+            self.action_space = Box(low=0, high=1, shape=self.shape, dtype=np.float32)
         else:
             raise Exception("Action must be an integer between 0-3")
-        
-        self.original_image = copy.deepcopy(image)
-        if checkpoint_image is None:
-            self.checkpoint_image = None
-            self.perturb_image = copy.deepcopy(image)
-        else:
-            self.checkpoint_image = checkpoint_image
-            self.perturb_image = copy.deepcopy(checkpoint_image)
 
-        self.shape = image.shape
-        self.image_file = image_file
+        image_input = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
+        results = self.predict_wrapper(image_input, self.victim_data)
+        self.result_type = "object"
+        if isinstance(results, list) or isinstance(results, np.ndarray):
+            self.result_type = "list"
 
-        self.model = model
-        self.classes = classes
-        model_config = self.model.get_config()
-        self.dimensions = model_config["layers"][0]["config"]["batch_input_shape"][1::]
-        self.scale_image = scale_image
-        results = self.predict()
-        
-        self.original_label = self.classes[np.argmax(results)]
-        self.original_index = np.argmax(results)
-        self.new_label = new_class
-        self.new_index = self.classes.index(new_class)
+        self.new_class = new_class
+
+        self.best_reward = 0
+        self.best_reward_image = None
 
         self.best_similarity = 0
         self.similarity_threshold = similarity
 
-        self.perturb_exp = perturb_exp
-        self.similar_exp = similar_exp
-
-        self.old_perturbance = results[self.new_index]
-        self.old_similarity = 1.0
-        
-        self.current_results = None
-        self.current_perturbance = None
-        self.current_similarity = None
+        self.results = None
+        self.perturbance = None
+        self.similarity = None
 
         self.render_level = render_level
 
         plt.ion()
-        self.figure = plt.figure(figsize=(9,3))
-        self.plot1 = self.figure.add_subplot(1,3,1)
-        self.plot2 = self.figure.add_subplot(1,3,2)
-        self.plot3 = self.figure.add_subplot(1,3,3)
+        self.figure = plt.figure(figsize=(6,3))
+        self.plot1 = self.figure.add_subplot(1,2,1)
+        self.plot2 = self.figure.add_subplot(1,2,2)
+        # self.plot3 = self.figure.add_subplot(1,3,3)
 
         self.steps = 0
         self.render_interval = render_interval
@@ -125,8 +152,15 @@ class MorphEnv(gym.Env):
                         pixel_change = np.uint8(np.round(action[row][col][color] * 255.0))
                         self.perturb_image[row][col][color] = pixel_change
 
-        self.current_results = self.predict()
-        self.current_perturbance = self.current_results[self.new_index]
+        image_input = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
+        self.results = self.predict_wrapper(image_input, self.victim_data)
+        if self.result_type == "list":
+            self.perturbance = self.results[self.new_class]
+        else:
+            if self.results == self.new_class:
+                self.perturbance = 1
+            else:
+                self.perturbance = 0
 
         euclid_distance = 0
         for row in range(self.shape[0]):
@@ -135,68 +169,68 @@ class MorphEnv(gym.Env):
                     pixel_distance = ((int(self.perturb_image[row][col][color]) - int(self.original_image[row][col][color])) / 255.0) ** 2
                     euclid_distance += pixel_distance
         
-        self.current_similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
-        
-        # delta_perturbance = self.current_perturbance - self.old_perturbance
-        # delta_similarity = self.current_similarity - self.old_similarity
-        # reward = delta_perturbance * delta_similarity
+        self.similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
 
-        reward = (self.current_perturbance ** self.perturb_exp) * (self.current_similarity ** self.similar_exp)
-        # done = (self.current_similarity < self.similarity_threshold)
-        # if done:
-        #     reward = 0
+        perturb_reward = self.perturbance
+        if self.result_type == 'list' and np.argmax(self.results) == self.new_class:
+            perturb_reward = 1
+        
+        similar_reward = self.similarity
+        if self.similarity >= self.similarity_threshold:
+            similar_reward = 1
+        
+        reward = perturb_reward * similar_reward
+        if reward > self.best_reward:
+            self.best_reward = reward
+            self.best_reward_image = copy.deepcopy(self.perturb_image)
 
         if self.render_interval > 0 and self.steps % self.render_interval == 0:
             if self.render_level > 0:
-                print_perturb = np.format_float_scientific(self.current_perturbance, 3)
-                print_similar = round(self.current_similarity * 100, 1)
+                print_perturb = np.format_float_scientific(self.perturbance, 3)
+                print_similar = round(self.similarity * 100, 1)
                 print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
             if self.render_level > 1:
                 self.render()
             
         if self.save_interval > 0 and self.steps % self.save_interval == 0:
-            checkpoint_image = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
+            checkpoint_image = cv2.resize(self.best_reward_image, (self.dim_height, self.dim_height))
             checkpoint_image_file = f"Checkpoint{self.image_file}"
+            if self.checkpoint_file is not None:
+                checkpoint_image_file = self.checkpoint_file        
             cv2.imwrite(checkpoint_image_file, checkpoint_image)
             print(f"Checkpoint image saved at {checkpoint_image_file}")
 
-        if np.argmax(self.current_results) == self.new_index:
-            reward = (self.current_similarity ** self.similar_exp)
-            fake_image = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
-            if self.current_similarity > self.similarity_threshold:
+        if (self.result_type == 'list' and np.argmax(self.results) == self.new_class) or (self.result_type == 'object' and self.results == self.new_class):
+            fake_image = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
+            if self.similarity >= self.similarity_threshold:
                 fake_image_file = f"Fake{self.image_file}"
                 cv2.imwrite(fake_image_file, fake_image)
                 print(f"Successful perturb! Image saved at {fake_image_file}")
                 exit()
-            elif self.current_similarity > self.best_similarity:
-                self.best_similarity = self.current_similarity
+            elif self.similarity > self.best_similarity:
+                self.best_similarity = self.similarity
                 fake_image_file = f"SemiFake{self.image_file}"
                 cv2.imwrite(fake_image_file, fake_image)
                 print(f"Semi-successful perturb! Not enough similarity, but image saved at {fake_image_file}")
-        
-        self.old_perturbance = self.current_perturbance
-        self.old_similarity = self.current_similarity        
-        return self.perturb_image, reward, False, {"perturb":self.current_perturbance, "similar":self.current_similarity}
+               
+        return self.perturb_image, reward, False, {"perturb":self.perturbance, "similar":self.similarity}
 
     def reset(self):
         if self.checkpoint_image is None:
             self.perturb_image = copy.deepcopy(self.original_image)
         else:
             self.perturb_image = copy.deepcopy(self.checkpoint_image)
-        results = self.predict()
-        self.old_perturbance = results[self.new_index]
-        self.old_similarity = 1.0
         
-        self.current_results = None
-        self.current_perturbance = None
-        self.current_similarity = None
-        return self.original_image
+        self.results = None
+        self.perturbance = None
+        self.similarity = None
+        return self.perturb_image
 
     def render(self):
-        self.plot3.clear()
         self.plot_original()
         self.plot_morph()
-        self.plot_value_array()
+        # self.plot3.clear()
+        # self.plot_value_array()
         plt.pause(0.01)
 
     def plot_original(self):
@@ -207,10 +241,10 @@ class MorphEnv(gym.Env):
         self.plot1.imshow(self.original_image, cmap='gray')
 
         color = 'red'
-        if self.current_similarity >= self.similarity_threshold:
+        if self.similarity >= self.similarity_threshold:
             color = 'green'
         
-        self.plot1.set_xlabel("Similarity = {}".format(round(self.current_similarity * 100, 1), color=color))
+        self.plot1.set_xlabel("Similarity = {}".format(round(self.similarity * 100, 1), color=color))
 
     def plot_morph(self):
         self.plot2.grid(False)
@@ -219,37 +253,17 @@ class MorphEnv(gym.Env):
 
         self.plot2.imshow(self.perturb_image, cmap='gray')
 
-        predicted_label = self.classes[np.argmax(self.current_results)]
-        if predicted_label == self.original_label:
-            color = 'blue'
-        elif predicted_label == self.new_label:
-            color = 'green'
-        else:
-            color = 'red'
+        self.plot2.set_xlabel("Perturbance={:2.0f}".format(np.format_float_scientific(self.perturbance, 3)))
 
-        self.plot2.set_xlabel("{} {:2.0f}% (true={} fake={})".format(predicted_label,
-                                        100*np.max(self.current_results),
-                                        self.original_label,
-                                        self.new_label),
-                                        color=color)
+    # def plot_value_array(self):
+    #     self.plot3.grid(False)
+    #     self.plot3.set_xticks(range(len(self.results)), self.classes)
+    #     self.plot3.set_yticks([])
+    #     thisplot = self.plot3.bar(range(len(self.results)), self.results, color="#777777")
+    #     self.plot3.set_ylim([0, 1])
+    #     predicted_label = self.classes[np.argmax(self.results)]
 
-    def plot_value_array(self):
-        self.plot3.grid(False)
-        self.plot3.set_xticks(range(len(self.current_results)), self.classes)
-        self.plot3.set_yticks([])
-        thisplot = self.plot3.bar(range(len(self.current_results)), self.current_results, color="#777777")
-        self.plot3.set_ylim([0, 1])
-        predicted_label = self.classes[np.argmax(self.current_results)]
-
-        thisplot[predicted_label].set_color('red')
-        thisplot[self.original_label].set_color('blue')
-        thisplot[self.new_label].set_color('green')
-    
-    def predict(self):
-        image_input = cv2.resize(self.perturb_image, (self.dimensions[0], self.dimensions[1]))
-        image_input = image_input.reshape((1,)+self.dimensions)
-        if self.scale_image:
-            image_input = image_input / 255.0
-        results = self.model.predict(image_input, verbose=0)[0]
-        return results
+    #     thisplot[predicted_label].set_color('red')
+    #     thisplot[self.original_label].set_color('blue')
+    #     thisplot[self.new_label].set_color('green')
 
