@@ -45,7 +45,7 @@ class MorphEnv(gym.Env):
         #If greyscale, add an extra dimension (makes processing easier)
         if self.grayscale:
             self.original_image = self.original_image.reshape(self.original_image.shape + (1,))
-            if self.checkpoint_file is not None:
+            if self.checkpoint_file is not None and exists(self.checkpoint_file):
                 self.checkpoint_image = self.checkpoint_image.reshape(self.checkpoint_image.shape + (1,))
 
         if self.checkpoint_image is None:

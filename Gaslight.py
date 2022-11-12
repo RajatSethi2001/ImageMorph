@@ -54,7 +54,7 @@ framework = "A2C"
 rl_model = "A2CMNIST_Optuna.zip"
 
 #Which hyperparameter pickle file to use (Make sure it matches the framework)
-param_file = "A2C-Params.pkl"
+param_file = None
 
 run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, render_interval, save_interval, checkpoint_file, framework, rl_model, param_file)
 

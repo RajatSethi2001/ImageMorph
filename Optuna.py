@@ -26,9 +26,9 @@ similarity = 0.7
 framework = "A2C"
 param_file = "A2C-Params.pkl"
 trials = 20
-timesteps = 2000
-episodes = 1
-steps_per_episode = 1000
+timesteps = 1000
+episodes = 4
+steps_per_episode = 250
 
 class ParamFinder:
     def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, framework, param_file, trials, timesteps, episodes, steps_per_episode):
@@ -61,12 +61,11 @@ class ParamFinder:
     
     def get_a2c(self, trial):
         gamma = trial.suggest_categorical("gamma", [0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 0.9999])
-        normalize_advantage = trial.suggest_categorical("normalize_advantage", [False, True])
-        max_grad_norm = trial.suggest_categorical("max_grad_norm", [0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 1])
-        use_rms_prop = trial.suggest_categorical("use_rms_prop", [False, True])
+        normalize_advantage = trial.suggest_categorical("normalize_advantage", [True])
+        max_grad_norm = trial.suggest_categorical("max_grad_norm", [0.5, 0.6, 0.7, 0.8, 0.9, 1])
         gae_lambda = trial.suggest_categorical("gae_lambda", [0.8, 0.9, 0.92, 0.95, 0.98, 0.99, 1.0])
         n_steps = trial.suggest_categorical("n_steps", [8, 16, 32, 64, 128, 256])
-        learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-1)
+        learning_rate = trial.suggest_float("learning_rate", 1e-4, 5e-1)
         ent_coef = trial.suggest_float("ent_coef", 0.000001, 0.1)
         vf_coef = trial.suggest_float("vf_coef", 0.1, 1)
 
@@ -78,7 +77,6 @@ class ParamFinder:
             "ent_coef": ent_coef,
             "normalize_advantage": normalize_advantage,
             "max_grad_norm": max_grad_norm,
-            "use_rms_prop": use_rms_prop,
             "vf_coef": vf_coef,
         }
 
