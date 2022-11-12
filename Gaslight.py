@@ -6,7 +6,8 @@ from tensorflow.keras import models
 #Can return either a list of numbers (for standard classifications) or an object (for total black-box)
 def predict_wrapper(image, victim_data):
     victim = victim_data["model"]
-    return victim.predict(image / 255.0)
+    image_input = image.reshape((1,) + image.shape)  / 255.0
+    return victim.predict(image_input, verbose=0)[0]
 
 #Filename of image to be morphed
 image_file = "MNIST.png"

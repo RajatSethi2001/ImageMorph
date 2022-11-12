@@ -69,6 +69,8 @@ class MorphEnv(gym.Env):
             raise Exception("Action must be an integer between 0-3")
 
         image_input = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
+        if self.grayscale:
+            image_input = image_input.reshape((self.dim_height, self.dim_width, 1))
         results = self.predict_wrapper(image_input, self.victim_data)
         self.result_type = "object"
         if isinstance(results, list) or isinstance(results, np.ndarray):
@@ -153,6 +155,8 @@ class MorphEnv(gym.Env):
                         self.perturb_image[row][col][color] = pixel_change
 
         image_input = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
+        if self.grayscale:
+            image_input = image_input.reshape((self.dim_height, self.dim_width, 1))
         self.results = self.predict_wrapper(image_input, self.victim_data)
         if self.result_type == "list":
             self.perturbance = self.results[self.new_class]
