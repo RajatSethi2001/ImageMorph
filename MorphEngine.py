@@ -24,13 +24,13 @@ class MorphCheckpoint(CheckpointCallback):
             self.model.save(self.rl_model)
         return True
 
-def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, render_interval=0, save_interval=1000, checkpoint_file=None, framework="PPO", rl_model="DefaultModel.zip", param_file=None):
+def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, framework="PPO", rl_model="DefaultModel.zip", save_interval=1000, param_file=None):
     hyperparams = {}
     if param_file is not None:
         study = pickle.load(open(param_file, 'rb'))
         hyperparams = study.best_params
 
-    env = MorphEnv(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, render_interval, save_interval, checkpoint_file)
+    env = MorphEnv(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, checkpoint_level, checkpoint_file)
     checkpoint_callback = MorphCheckpoint(save_interval, rl_model)
 
     if framework not in {"A2C", "PPO", "TD3"}:

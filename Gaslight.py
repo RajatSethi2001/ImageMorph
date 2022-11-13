@@ -28,21 +28,16 @@ new_class = 5
 #Which action space to use (0-3)
 #Action 0 - Edit one pixel at a time by -255 or +255
 #Action 1 - Edit one pixel at a time by changing it to a value between [0-255]
-#Action 2 - Edit all pixels at a time by -255 or +255
-#Action 3 - Edit all pixels at a time by changing it to a value between [0-255]
 action = 1
 
 #Minimum similarity needed for a successful morph [0-1]
-similarity = 0.7
+similarity = 0.9
 
 #0 for no render, 1 for light render (only print), 2 for full render (pyplot graph)
 render_level = 1
 
-#Render images after how many steps.
-render_interval = 100
-
-#Save image and model after how many steps. Set to 0 for no save.
-save_interval = 1000
+#0 for saving the final result, 1 for also saving results that beat the classifier but not similarity, 2 for saving results with the best reward
+checkpoint_level = 2
 
 #Checkpoint image to start perturbation. Set to None to use original
 checkpoint_file = "CheckpointMNIST.png"
@@ -51,10 +46,13 @@ checkpoint_file = "CheckpointMNIST.png"
 framework = "A2C"
 
 #Which RL model to use (If it doesn't exist, it will be created)
-rl_model = "A2CMNIST_Optuna.zip"
+rl_model = "A2C-MNIST.zip"
+
+#Save model after how many steps. Set to 0 for no save.
+save_interval = 1000
 
 #Which hyperparameter pickle file to use (Make sure it matches the framework)
-param_file = None
+param_file = "A2C-Params.pkl"
 
-run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, render_interval, save_interval, checkpoint_file, framework, rl_model, param_file)
+run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, checkpoint_level, checkpoint_file, framework, rl_model, save_interval, param_file)
 
