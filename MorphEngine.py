@@ -13,6 +13,7 @@ from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckA
 from stable_baselines3.common.vec_env import DummyVecEnv, VecCheckNan
 from torch import nn as nn
 
+#Callback class that saves the model after a set interval of steps.
 class MorphCheckpoint(CheckpointCallback):
     def __init__(self, save_interval, rl_model):
         super().__init__(save_interval, ".", name_prefix=rl_model)
@@ -24,12 +25,14 @@ class MorphCheckpoint(CheckpointCallback):
             self.model.save(self.rl_model)
         return True
 
-def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, framework="PPO", rl_model=None, save_interval=1000, param_file=None):
+def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, framework="PPO", render_level=0, checkpoint_level=0, checkpoint_file=None, rl_model=None, save_interval=1000, param_file=None):
+    #Hyperparameters collected from Optuna.py
     hyperparams = {}
     if param_file is not None:
         study = pickle.load(open(param_file, 'rb'))
         hyperparams = study.best_params
 
+    #Environment that will conduct the attack.
     env = MorphEnv(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, checkpoint_level, checkpoint_file)
     checkpoint_callback = MorphCheckpoint(save_interval, rl_model)
 
@@ -39,6 +42,7 @@ def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0
     if rl_model is not None and exists(rl_model):
         model_attack = eval(f"{framework}.load(\"{rl_model}\", env=env, **hyperparams)")
     
+    #RL models to use for testing.
     else:
         policy_name = "MlpPolicy"
         if framework == "A2C":
@@ -46,8 +50,6 @@ def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0
         elif framework == "PPO":
             model_attack = PPO(policy_name, env)
         elif framework == "TD3":
-            n_actions = env.action_space.shape
-            action_noise = OrnsteinUhlenbeckActionNoise(np.zeros(n_actions), np.ones(n_actions) * 0.5)
-            model_attack = TD3(policy_name, env, action_noise=action_noise)
+            model_attack = TD3(policy_name, env)
     
     model_attack.learn(100000, progress_bar=True, callback=checkpoint_callback)

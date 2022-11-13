@@ -11,21 +11,45 @@ from stable_baselines3.common.callbacks import BaseCallback
 from tensorflow.keras import models
 from torch import nn as nn
 
+#Wrapper function that takes in the current perturbed image, the victim model, and any associated data.
+#The victim model should predict the class of the image, then return the outcome.
+#Can return either a list of numbers (for standard classifications) or an object (for total black-box)
 def predict_wrapper(image, victim_data):
     victim = victim_data["model"]
     image_input = image.reshape((1,) + image.shape)  / 255.0
     return victim.predict(image_input, verbose=0)[0]
 
+#Filename of image to be morphed (Will not affect the original image)
 image_file = "MNIST.png"
+
+#Is the image grayscale? True for Grayscale, False for RGB.
 grayscale = True
+
+#Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
     "model": models.load_model("mnist")
 }
+
+# The intended outcome for perturbation.
+# If predict_wrapper returns a list of numbers, this is the index to maximize
+# If predict_wrapper returns an object, this is the intended value
 new_class = 5
+
+#Which action space to use
+#Action 0 - Edit one pixel at a time by -255 or +255 (This might be a bit broken, still testing)
+#Action 1 - Edit one pixel at a time by changing it to a value between [0-255]
 action = 1
+
+#Which RL framework to use (Currently only supports A2C, will add the other frameworks soon)
 framework = "A2C"
+
+#Where to save the optimal hyperparameters (This is a .pkl file). Can also be set to an existing file to continue trials.
 param_file = "A2C-Params.pkl"
+
+#How many trials to run for this iteration.
 trials = 20
+
+#How many timesteps to run through per trial.
 timesteps = 2000
 
 class ParamFinder:
@@ -41,6 +65,7 @@ class ParamFinder:
         self.trials = trials
         self.timesteps = timesteps
 
+        #Retrieve existing parameters if they exist.
         if exists(param_file):
             self.study = pickle.load(open(self.param_file, 'rb'))
         else:
@@ -55,6 +80,8 @@ class ParamFinder:
         pickle.dump(self.study, open(self.param_file, 'wb'))
     
     def get_a2c(self, trial):
+        #These are the hyperparameters that Stable-Baselines3 uses.
+        #In particular, these are the hyperparameters suggested by rl-zoo.
         gamma = trial.suggest_categorical("gamma", [0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 0.9999])
         normalize_advantage = trial.suggest_categorical("normalize_advantage", [True])
         max_grad_norm = trial.suggest_categorical("max_grad_norm", [0.5, 0.6, 0.7, 0.8, 0.9, 1])
@@ -76,11 +103,20 @@ class ParamFinder:
         }
 
     def optimize_a2c(self, trial):
+        #Save the current study in the pickle file.
         pickle.dump(self.study, open(self.param_file, 'wb'))
+
+        #Guess the optimal hyperparameters for testing in this trial.
         hyperparams = self.get_a2c(trial)
+
+        #Create an environment and model to test out the hyperparameters. 
         env = MorphEnv(self.predict_wrapper, self.image_file, self.grayscale, self.victim_data, self.new_class, self.action, 1)
-        model = A2C("CnnPolicy", env, **hyperparams)
+        model = A2C("MlpPolicy", env, **hyperparams)
+
+        #Run the trial for the designated number of timesteps.
         model.learn(self.timesteps, progress_bar=True)
+
+        #Return the best reward as the score for this trial.
         reward = env.get_best_reward()
         return reward
 

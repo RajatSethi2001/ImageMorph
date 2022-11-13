@@ -1,6 +1,13 @@
 from MorphEngine import run
 from tensorflow.keras import models
 
+# ===================================================================================================
+# REQUIRED PARAMETERS
+# These parameters decide which image to perturb and which classifier to attack.
+# They must be filled out so that the algorithm understands what its objective is.
+# Use the example below for MNIST to get started
+# ===================================================================================================
+
 #Wrapper function that takes in the current perturbed image, the victim model, and any associated data.
 #The victim model should predict the class of the image, then return the outcome.
 #Can return either a list of numbers (for standard classifications) or an object (for total black-box)
@@ -9,7 +16,7 @@ def predict_wrapper(image, victim_data):
     image_input = image.reshape((1,) + image.shape)  / 255.0
     return victim.predict(image_input, verbose=0)[0]
 
-#Filename of image to be morphed
+#Filename of image to be morphed (Will not affect the original image)
 image_file = "MNIST.png"
 
 #Is the image grayscale? True for Grayscale, False for RGB.
@@ -25,13 +32,23 @@ victim_data = {
 # If predict_wrapper returns an object, this is the intended value
 new_class = 5
 
-#Which action space to use (0-3)
-#Action 0 - Edit one pixel at a time by -255 or +255
+#Which action space to use
+#Action 0 - Edit one pixel at a time by -255 or +255 (This might be a bit broken, still testing)
 #Action 1 - Edit one pixel at a time by changing it to a value between [0-255]
 action = 1
 
 #Minimum similarity needed for a successful morph [0-1]
-similarity = 0.9
+similarity = 0.8
+
+#Which RL framework to use (A2C, PPO, TD3)
+framework = "PPO"
+
+# ===================================================================================================
+# ADVANCED PARAMETERS
+# These parameters are used for debugging purposes.
+# They are used to either display progress or save models/images/params for future use.
+# Assume these are the default settings, they can be left alone.
+# ===================================================================================================
 
 #0 for no render, 1 for light render (only print), 2 for full render (pyplot graph)
 render_level = 1
@@ -39,20 +56,17 @@ render_level = 1
 #0 for saving the final result, 1 for also saving results that beat the classifier but not similarity, 2 for saving results with the best reward
 checkpoint_level = 2
 
-#Checkpoint image to start perturbation. Set to None to use original
-checkpoint_file = "CheckpointMNIST.png"
+#Checkpoint image to start perturbation and save checkpoint files. Set to None to use original. If checkpoint_level > 0, then checkpoints will be saved to "Checkpoint{image_file}"
+checkpoint_file = "Checkpoint.png"
 
-#Which RL framework to use (A2C, PPO, TD3)
-framework = "PPO"
-
-#Which RL model to use/save to (If it doesn't exist, it will be created)
+#Which RL model to use/save to (If it doesn't exist, it will be created). Stable-Baselines3 uses a .zip file
 rl_model = None
 
 #Save model after how many steps. Set to 0 for no save.
 save_interval = 0
 
-#Which hyperparameter pickle file to use (Make sure it matches the framework)
+#Which hyperparameter pickle file to use from Optuna.py (Make sure it matches the framework)
 param_file = None
 
-run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, checkpoint_level, checkpoint_file, framework, rl_model, save_interval, param_file)
+run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, framework, render_level, checkpoint_level, checkpoint_file, rl_model, save_interval, param_file)
 
