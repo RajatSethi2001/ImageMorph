@@ -112,15 +112,17 @@ class MorphEnv(gym.Env):
         
         similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
 
-        # perturb_reward = perturbance
-        # if self.result_type == 'list' and np.argmax(results) == self.new_class and perturbance >= 0.98:
-        #     perturb_reward = 1
+        reduction_factor = 0.0001
+        reduction_threshold = 0.95
+        perturb_reward = perturbance
+        if self.result_type == 'list' and perturbance >= reduction_threshold:
+            perturb_reward = reduction_threshold + reduction_factor * (perturbance - reduction_threshold)
         
         # similar_reward = self.similarity
         # if self.similarity >= self.similarity_threshold:
         #     similar_reward = 1
         
-        reward = perturbance * similarity
+        reward = perturb_reward * similarity
         improvement = True
         if reward > self.best_reward:
             self.best_reward = reward

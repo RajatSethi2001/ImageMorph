@@ -20,11 +20,11 @@ class MorphCheckpoint(CheckpointCallback):
         self.rl_model = rl_model
     
     def _on_step(self) -> bool:
-        if self.n_calls % self.save_interval == 0:
+        if self.save_interval > 0 and self.rl_model is not None and self.n_calls % self.save_interval == 0:
             self.model.save(self.rl_model)
         return True
 
-def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, framework="PPO", rl_model="DefaultModel.zip", save_interval=1000, param_file=None):
+def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, framework="PPO", rl_model=None, save_interval=1000, param_file=None):
     hyperparams = {}
     if param_file is not None:
         study = pickle.load(open(param_file, 'rb'))
@@ -36,7 +36,7 @@ def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0
     if framework not in {"A2C", "PPO", "TD3"}:
         raise Exception(f"Unknown Framework: {framework} - Available Frameworks: (A2C, PPO, TD3)")
 
-    if exists(rl_model):
+    if rl_model is not None and exists(rl_model):
         model_attack = eval(f"{framework}.load(\"{rl_model}\", env=env, **hyperparams)")
     
     else:

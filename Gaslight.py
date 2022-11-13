@@ -43,16 +43,16 @@ checkpoint_level = 2
 checkpoint_file = "CheckpointMNIST.png"
 
 #Which RL framework to use (A2C, PPO, TD3)
-framework = "A2C"
+framework = "PPO"
 
-#Which RL model to use (If it doesn't exist, it will be created)
-rl_model = "A2C-MNIST.zip"
+#Which RL model to use/save to (If it doesn't exist, it will be created)
+rl_model = None
 
 #Save model after how many steps. Set to 0 for no save.
-save_interval = 1000
+save_interval = 0
 
 #Which hyperparameter pickle file to use (Make sure it matches the framework)
-param_file = "A2C-Params.pkl"
+param_file = None
 
 run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, checkpoint_level, checkpoint_file, framework, rl_model, save_interval, param_file)
 
