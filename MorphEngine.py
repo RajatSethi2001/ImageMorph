@@ -40,7 +40,7 @@ def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0
         model_attack = eval(f"{framework}.load(\"{rl_model}\", env=env, **hyperparams)")
     
     else:
-        policy_name = "CnnPolicy"
+        policy_name = "MlpPolicy"
         if framework == "A2C":
             model_attack = A2C(policy_name, env, **hyperparams)
         elif framework == "PPO":

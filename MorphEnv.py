@@ -19,34 +19,16 @@ class MorphEnv(gym.Env):
 
         if self.grayscale:
             self.original_image = cv2.imread(self.image_file, 0)
+            self.original_image = self.original_image.reshape(self.original_image.shape + (1,))
             if self.checkpoint_file is not None and exists(self.checkpoint_file):
                 self.checkpoint_image = cv2.imread(self.checkpoint_file, 0)
+                self.checkpoint_image = self.checkpoint_image.reshape(self.checkpoint_image.shape + (1,))
         #Else, image is a 3D RGB image
         else:
             self.original_image = cv2.imread(self.image_file)
             if self.checkpoint_file is not None and exists(self.checkpoint_file):
                 self.checkpoint_image = cv2.imread(self.checkpoint_file)
         
-        self.dim_height = self.original_image.shape[0]
-        self.dim_width = self.original_image.shape[1]
-
-        #Determine the smaller dimension
-        min_length = min(self.dim_height, self.dim_width)
-        #Scale images (sb3 requires images to be > 36x36)
-        if min_length < 36:
-            scale = 36 / min_length
-            new_height = int(self.dim_height * scale)
-            new_width = int(self.dim_width * scale)
-            self.original_image = cv2.resize(self.original_image, (new_height, new_width))
-            if self.checkpoint_file is not None and exists(self.checkpoint_file): 
-                self.checkpoint_image = cv2.resize(self.checkpoint_image, (new_height, new_width))
-
-        #If greyscale, add an extra dimension (makes processing easier)
-        if self.grayscale:
-            self.original_image = self.original_image.reshape(self.original_image.shape + (1,))
-            if self.checkpoint_file is not None and exists(self.checkpoint_file):
-                self.checkpoint_image = self.checkpoint_image.reshape(self.checkpoint_image.shape + (1,))
-
         if self.checkpoint_image is None:
             self.perturb_image = copy.deepcopy(self.original_image)
         else:
@@ -55,7 +37,6 @@ class MorphEnv(gym.Env):
         self.shape = self.original_image.shape
 
         self.observation_space = Box(low=0, high=255, shape=self.shape, dtype=np.uint8)
-        
         self.action = action
         if action == 0:
             self.action_space = Box(low=np.array([0, 0, 0, -1]), high=np.array([1, 1, 1, 1]), shape=(4,), dtype=np.float32)
@@ -64,10 +45,7 @@ class MorphEnv(gym.Env):
         else:
             raise Exception("Action must be an integer between 0-1")
 
-        image_input = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
-        if self.grayscale:
-            image_input = image_input.reshape((self.dim_height, self.dim_width, 1))
-        results = self.predict_wrapper(image_input, self.victim_data)
+        results = self.predict_wrapper(self.perturb_image, self.victim_data)
         self.result_type = "object"
         if isinstance(results, list) or isinstance(results, np.ndarray):
             self.result_type = "list"
@@ -116,10 +94,7 @@ class MorphEnv(gym.Env):
 
             perturb_test[row][col][color] = pixel_change
 
-        image_input = cv2.resize(perturb_test, (self.dim_height, self.dim_width))
-        if self.grayscale:
-            image_input = image_input.reshape((self.dim_height, self.dim_width, 1))
-        results = self.predict_wrapper(image_input, self.victim_data)
+        results = self.predict_wrapper(perturb_test, self.victim_data)
         if self.result_type == "list":
             perturbance = results[self.new_class]
         else:
@@ -137,7 +112,7 @@ class MorphEnv(gym.Env):
         
         similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
 
-        perturb_reward = perturbance
+        # perturb_reward = perturbance
         # if self.result_type == 'list' and np.argmax(results) == self.new_class and perturbance >= 0.98:
         #     perturb_reward = 1
         
@@ -145,7 +120,7 @@ class MorphEnv(gym.Env):
         # if self.similarity >= self.similarity_threshold:
         #     similar_reward = 1
         
-        reward = perturb_reward * similarity
+        reward = perturbance * similarity
         improvement = True
         if reward > self.best_reward:
             self.best_reward = reward
@@ -165,25 +140,23 @@ class MorphEnv(gym.Env):
                 self.render()
 
         if (self.result_type == 'list' and np.argmax(results) == self.new_class) or (self.result_type == 'object' and results == self.new_class):
-            fake_image = cv2.resize(self.perturb_image, (self.dim_height, self.dim_width))
             if self.best_similarity >= self.similarity_threshold:
                 fake_image_file = f"Fake{self.image_file}"
-                cv2.imwrite(fake_image_file, fake_image)
+                cv2.imwrite(fake_image_file, self.perturb_image)
                 print(f"Successful perturb! Image saved at {fake_image_file}")
                 exit()
             elif improvement and self.checkpoint_level > 0:
                 fake_image_file = f"Checkpoint{self.image_file}"
                 if self.checkpoint_file is not None:
                     fake_image_file = self.checkpoint_file
-                cv2.imwrite(fake_image_file, fake_image)
+                cv2.imwrite(fake_image_file, self.perturb_image)
                 print(f"Checkpoint image saved at {fake_image_file}")
         
         elif improvement and self.checkpoint_level > 1:
-            checkpoint_image = cv2.resize(self.perturb_image, (self.dim_height, self.dim_height))
             checkpoint_image_file = f"Checkpoint{self.image_file}"
             if self.checkpoint_file is not None:
                 checkpoint_image_file = self.checkpoint_file        
-            cv2.imwrite(checkpoint_image_file, checkpoint_image)
+            cv2.imwrite(checkpoint_image_file, self.perturb_image)
             print(f"Checkpoint image saved at {checkpoint_image_file}")
 
         return self.perturb_image, reward, False, {}
