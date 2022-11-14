@@ -17,20 +17,20 @@ def predict_wrapper(image, victim_data):
     return victim.predict(image_input, verbose=0)[0]
 
 #Filename of image to be morphed (Will not affect the original image)
-image_file = "MNIST.png"
+image_file = "CIFAR10.png"
 
 #Is the image grayscale? True for Grayscale, False for RGB.
-grayscale = True
+grayscale = False
 
 #Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
-    "model": models.load_model("mnist")
+    "model": models.load_model("cifar10")
 }
 
 # The intended outcome for perturbation.
-# If predict_wrapper returns a list of numbers, this is the index to maximize
+# If predict_wrapper returns a list of numbers, this is the index to maximize (use zero-based indexing)
 # If predict_wrapper returns an object, this is the intended value
-new_class = 5
+new_class = 9
 
 #Which action space to use
 #Action 0 - Edit one pixel at a time by -255 or +255 (This might be a bit broken, still testing)
@@ -38,7 +38,7 @@ new_class = 5
 action = 1
 
 #Minimum similarity needed for a successful morph [0-1]
-similarity = 0.8
+similarity = 0.9
 
 #Which RL framework to use (A2C, PPO, TD3)
 framework = "PPO"
@@ -56,17 +56,21 @@ render_level = 1
 #0 for saving the final result, 1 for also saving results that beat the classifier but not similarity, 2 for saving results with the best reward
 checkpoint_level = 2
 
-#Checkpoint image to start perturbation and save checkpoint files. Set to None to use original. If checkpoint_level > 0, then checkpoints will be saved to "Checkpoint{image_file}"
-checkpoint_file = "Checkpoint.png"
+#Checkpoint image to start perturbation and save checkpoint files. Set to None to use original.
+#If checkpoint_level > 0 but checkpoint_file is None, then checkpoints will be saved to "Checkpoint{image_file}"
+checkpoint_file = "CheckpointCIFAR.png"
 
-#Which RL model to use/save to (If it doesn't exist, it will be created). Stable-Baselines3 uses a .zip file
+#File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: This is independent from render_level). Set to None for no graphing.
+graph_file = "GraphCIFAR.png"
+
+#Which RL model to use/save to (If it doesn't exist, it will be created). Stable-Baselines3 uses a .zip file. Set to None for no model.
 rl_model = None
 
 #Save model after how many steps. Set to 0 for no save.
 save_interval = 0
 
-#Which hyperparameter pickle file to use from Optuna.py (Make sure it matches the framework)
+#Which hyperparameter pickle file to use from Optuna.py (Make sure it matches the framework). Set to None to use default hyperparameters
 param_file = None
 
-run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, framework, render_level, checkpoint_level, checkpoint_file, rl_model, save_interval, param_file)
+run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, framework, render_level, checkpoint_level, checkpoint_file, graph_file, rl_model, save_interval, param_file)
 

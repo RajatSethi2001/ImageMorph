@@ -1,4 +1,5 @@
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import pickle
@@ -21,11 +22,12 @@ class MorphCheckpoint(CheckpointCallback):
         self.rl_model = rl_model
     
     def _on_step(self) -> bool:
-        if self.save_interval > 0 and self.rl_model is not None and self.n_calls % self.save_interval == 0:
-            self.model.save(self.rl_model)
+        if self.save_interval > 0 and self.n_calls % self.save_interval == 0:            
+            if self.rl_model is not None:
+                self.model.save(self.rl_model)
         return True
 
-def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, framework="PPO", render_level=0, checkpoint_level=0, checkpoint_file=None, rl_model=None, save_interval=1000, param_file=None):
+def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, framework="PPO", render_level=0, checkpoint_level=0, checkpoint_file=None, graph_file=None, rl_model=None, save_interval=1000, param_file=None):
     #Hyperparameters collected from Optuna.py
     hyperparams = {}
     if param_file is not None:
@@ -33,7 +35,7 @@ def run(predict_wrapper, image_file, grayscale, victim_data, new_class, action=0
         hyperparams = study.best_params
 
     #Environment that will conduct the attack.
-    env = MorphEnv(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, checkpoint_level, checkpoint_file)
+    env = MorphEnv(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, render_level, checkpoint_level, checkpoint_file, graph_file)
     checkpoint_callback = MorphCheckpoint(save_interval, rl_model)
 
     if framework not in {"A2C", "PPO", "TD3"}:

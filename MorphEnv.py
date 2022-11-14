@@ -9,7 +9,7 @@ from gym.spaces import Box
 from os.path import exists
 
 class MorphEnv(gym.Env):
-    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None):
+    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, graph_file=None):
         self.predict_wrapper = predict_wrapper
         self.victim_data = victim_data
         self.image_file = image_file
@@ -72,6 +72,13 @@ class MorphEnv(gym.Env):
         self.best_perturbance = 0
         self.best_similarity = 0
 
+        #Stores data for graphing
+        if graph_file is not None:
+            self.graph_file = graph_file
+            self.perturb_scores = []
+            self.similar_scores = []
+            self.reward_scores = []
+
         #What similarity is required for a successful morph.
         self.similarity_threshold = similarity
 
@@ -85,9 +92,12 @@ class MorphEnv(gym.Env):
             self.figure = plt.figure(figsize=(6,3))
             self.plot1 = self.figure.add_subplot(1,2,1)
             self.plot2 = self.figure.add_subplot(1,2,2)
+        
+        self.timesteps = 0
 
     #When the agent receives an action, it will act upon it and determine how good/bad the action was.
     def step(self, action):
+        self.timesteps += 1
         #Create a copy of the current perturbed image, then sample the action on this copy.
         perturb_test = copy.deepcopy(self.perturb_image)
 
@@ -161,7 +171,7 @@ class MorphEnv(gym.Env):
         
         #reward = perturbance * similarity
         reward = perturb_reward * similarity
-
+        
         #If this perturbed image has a higher reward than the current best, then this image is the new best.
         improvement = True
         if reward > self.best_reward:
@@ -185,6 +195,21 @@ class MorphEnv(gym.Env):
             #If render_level > 1, update the pyplot.
             if self.render_level > 1:
                 self.render()
+
+        if self.graph_file is not None:
+            self.perturb_scores.append(self.best_perturbance)
+            self.similar_scores.append(self.best_similarity)
+            self.reward_scores.append(self.best_reward)
+            if improvement:
+                timestep_list = list(range(self.timesteps))
+                plt.plot(timestep_list, self.perturb_scores, label="Perturbance")
+                plt.plot(timestep_list, self.similar_scores, label="Similarity")
+                plt.plot(timestep_list, self.reward_scores, label="Best Reward")
+                plt.xlabel("Timesteps")
+                plt.ylabel("Score [0-1]")
+                plt.legend()
+                plt.savefig(self.graph_file)
+                plt.close()
 
         #If the image has been successfully misclassified, save the result. 
         if (self.result_type == 'list' and np.argmax(results) == self.new_class) or (self.result_type == 'object' and results == self.new_class):
@@ -221,16 +246,28 @@ class MorphEnv(gym.Env):
         else:
             self.perturb_image = copy.deepcopy(self.checkpoint_image)
         
-        #Reset the best image statistics too.
+        #Reset the best image statistics.
         self.best_reward = 0
         self.best_perturbance = 0
         self.best_similarity = 0
+
+        #Reset the best image statistic scores.
+        if self.graph_file is not None:
+            self.perturb_scores = []
+            self.similar_scores = []
+            self.reward_scores = []
 
         return self.perturb_image
 
     #Return the best reward (Used by Optuna.py)
     def get_best_reward(self):
         return self.best_reward
+    
+    def get_best_perturbance(self):
+        return self.best_perturbance
+    
+    def get_best_similarity(self):
+        return self.best_similarity
     
     #If render_level > 1, display the original and perturbed images in pyplot.
     def render(self):
