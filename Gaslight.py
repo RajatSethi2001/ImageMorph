@@ -31,12 +31,7 @@ victim_data = {
 # If predict_wrapper returns a list of numbers, this is the index to maximize (use zero-based indexing)
 # If predict_wrapper returns an object, this is the intended value
 # If new_class is None, then it will perform an untargeted attack (i.e, it does not matter what the final outcome is, as long as its different from the original)
-new_class = None
-
-#Which action space to use
-#Action 0 - Edit one pixel at a time by -255 or +255 (This might be a bit broken, still testing)
-#Action 1 - Edit one pixel at a time by changing it to a value between [0-255]
-action = 1
+new_class = 5
 
 #Minimum similarity needed for a successful morph [0-1]
 similarity = 0.9
@@ -61,8 +56,8 @@ checkpoint_level = 2
 #If checkpoint_level > 0 but checkpoint_file is None, then checkpoints will be saved to "Checkpoint{image_file}"
 checkpoint_file = "CheckpointMNIST.png"
 
-#File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: This is independent from render_level). Set to None for no graphing.
-graph_file = "GraphMNIST.png"
+#File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: This is independent from render_level).
+graph_file = None
 
 #Which RL model to use/save to (If it doesn't exist, it will be created). Stable-Baselines3 uses a .zip file. Set to None for no model.
 rl_model = None
@@ -73,5 +68,5 @@ save_interval = 0
 #Which hyperparameter pickle file to use from Optuna.py (Make sure it matches the framework). Set to None to use default hyperparameters
 param_file = None
 
-run(predict_wrapper, image_file, grayscale, victim_data, new_class, action, similarity, framework, render_level, checkpoint_level, checkpoint_file, graph_file, rl_model, save_interval, param_file)
+run(predict_wrapper, image_file, grayscale, victim_data, new_class, similarity, framework, render_level, checkpoint_level, checkpoint_file, graph_file, rl_model, save_interval, param_file)
 

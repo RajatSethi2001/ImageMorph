@@ -9,7 +9,7 @@ from gym.spaces import Box
 from os.path import exists
 
 class MorphEnv(gym.Env):
-    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, action=0, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, graph_file=None):
+    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, graph_file=None):
         self.predict_wrapper = predict_wrapper
         self.victim_data = victim_data
         self.image_file = image_file
@@ -44,17 +44,7 @@ class MorphEnv(gym.Env):
         #In this case, the agent should receive a matrix of pixels.
         self.observation_space = Box(low=0, high=255, shape=self.shape, dtype=np.uint8)
 
-        #The action space is the space of all possible changes that the agent can make during a step.
-        self.action = action
-
-        #Change the specified pixel by a magnitude of -255/+255 (capped between [0-1])
-        if action == 0:
-            self.action_space = Box(low=np.array([0, 0, 0, -1]), high=np.array([1, 1, 1, 1]), shape=(4,), dtype=np.float32)
-        #Change the specified pixel to a number between [0-255]
-        elif action == 1:
-            self.action_space = Box(low=0, high=1, shape=(4,), dtype=np.float32)
-        else:
-            raise Exception("Action must be an integer between 0-1")
+        self.action_space = Box(low=0, high=1, shape=(4,), dtype=np.float32)
 
         #Get current results to determine the type of output from classifier.
         #If the classifier returns a list, the agent will try to maximize the index determined from new_class
@@ -106,36 +96,13 @@ class MorphEnv(gym.Env):
         self.timesteps += 1
         #Create a copy of the current perturbed image, then sample the action on this copy.
         perturb_test = copy.deepcopy(self.perturb_image)
-
-        #Changes the specified pixel by +/-255.
-        if self.action == 0:
-            row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
-            col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
-            color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
-            pixel_change = np.uint8(np.round(action[3] * 255))
-            
-            #If pixel change is negative, check for negative overflow.
-            if pixel_change < 0:
-                #Check for overflow
-                if (perturb_test[row][col][color] + pixel_change > perturb_test[row][col][color]):
-                    perturb_test[row][col][color] = 0
-                else:
-                    perturb_test[row][col][color] += pixel_change
-            #If pixel change is positive, check for positive overflow.
-            else:
-                if (perturb_test[row][col][color] + pixel_change < perturb_test[row][col][color]):
-                    perturb_test[row][col][color] = 255
-                else:
-                    perturb_test[row][col][color] += pixel_change
         
-        #Changes the pixel to a value between [0-255].
-        elif self.action == 1:
-            row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
-            col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
-            color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
-            pixel_change = np.uint8(np.round(action[3] * 255))
+        row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
+        col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
+        color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
+        pixel_change = np.uint8(np.round(action[3] * 255))
 
-            perturb_test[row][col][color] = pixel_change
+        perturb_test[row][col][color] = pixel_change
 
         #Get the results from the classifier.
         results = self.predict_wrapper(perturb_test, self.victim_data)

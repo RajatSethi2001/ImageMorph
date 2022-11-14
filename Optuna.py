@@ -35,11 +35,6 @@ victim_data = {
 # If predict_wrapper returns an object, this is the intended value
 new_class = 5
 
-#Which action space to use
-#Action 0 - Edit one pixel at a time by -255 or +255 (This might be a bit broken, still testing)
-#Action 1 - Edit one pixel at a time by changing it to a value between [0-255]
-action = 1
-
 #Which RL framework to use (Currently only supports A2C, will add the other frameworks soon)
 framework = "A2C"
 
@@ -110,7 +105,7 @@ class ParamFinder:
         hyperparams = self.get_a2c(trial)
 
         #Create an environment and model to test out the hyperparameters. 
-        env = MorphEnv(self.predict_wrapper, self.image_file, self.grayscale, self.victim_data, self.new_class, self.action, 1)
+        env = MorphEnv(self.predict_wrapper, self.image_file, self.grayscale, self.victim_data, self.new_class, 1)
         model = A2C("MlpPolicy", env, **hyperparams)
 
         #Run the trial for the designated number of timesteps.
@@ -121,7 +116,7 @@ class ParamFinder:
         return reward
 
 if __name__=='__main__':
-    param_finder = ParamFinder(predict_wrapper, image_file, grayscale, victim_data, new_class, action, framework, param_file, trials, timesteps)
+    param_finder = ParamFinder(predict_wrapper, image_file, grayscale, victim_data, new_class, framework, param_file, trials, timesteps)
     param_finder.run()
 
 
