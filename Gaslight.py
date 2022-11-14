@@ -17,20 +17,21 @@ def predict_wrapper(image, victim_data):
     return victim.predict(image_input, verbose=0)[0]
 
 #Filename of image to be morphed (Will not affect the original image)
-image_file = "CIFAR10.png"
+image_file = "MNIST.png"
 
 #Is the image grayscale? True for Grayscale, False for RGB.
-grayscale = False
+grayscale = True
 
 #Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
-    "model": models.load_model("cifar10")
+    "model": models.load_model("mnist")
 }
 
 # The intended outcome for perturbation.
 # If predict_wrapper returns a list of numbers, this is the index to maximize (use zero-based indexing)
 # If predict_wrapper returns an object, this is the intended value
-new_class = 9
+# If new_class is None, then it will perform an untargeted attack (i.e, it does not matter what the final outcome is, as long as its different from the original)
+new_class = None
 
 #Which action space to use
 #Action 0 - Edit one pixel at a time by -255 or +255 (This might be a bit broken, still testing)
@@ -53,15 +54,15 @@ framework = "PPO"
 #0 for no render, 1 for light render (only print), 2 for full render (pyplot graph)
 render_level = 1
 
-#0 for saving the final result, 1 for also saving results that beat the classifier but not similarity, 2 for saving results with the best reward
+#0 for only saving the final result, 1 for also saving results that beat the classifier but not similarity, 2 for saving results with the best reward
 checkpoint_level = 2
 
 #Checkpoint image to start perturbation and save checkpoint files. Set to None to use original.
 #If checkpoint_level > 0 but checkpoint_file is None, then checkpoints will be saved to "Checkpoint{image_file}"
-checkpoint_file = "CheckpointCIFAR.png"
+checkpoint_file = "CheckpointMNIST.png"
 
 #File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: This is independent from render_level). Set to None for no graphing.
-graph_file = "GraphCIFAR.png"
+graph_file = "GraphMNIST.png"
 
 #Which RL model to use/save to (If it doesn't exist, it will be created). Stable-Baselines3 uses a .zip file. Set to None for no model.
 rl_model = None

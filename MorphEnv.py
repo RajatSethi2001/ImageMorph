@@ -59,12 +59,17 @@ class MorphEnv(gym.Env):
         #Get current results to determine the type of output from classifier.
         #If the classifier returns a list, the agent will try to maximize the index determined from new_class
         #If the classifier returns something else, the agent will try to make new_class occur.
-        results = self.predict_wrapper(self.perturb_image, self.victim_data)
+        results = self.predict_wrapper(self.original_image, self.victim_data)
         self.result_type = "object"
         if isinstance(results, list) or isinstance(results, np.ndarray):
             self.result_type = "list"
 
         self.new_class = new_class
+        #Get the orignal class (which will be used for untargeted attacks and verifying final results)
+        if self.result_type == "list":
+            self.original_class = np.argmax(results)
+        else:
+            self.original_class = results
 
         #Agent will store the image with the highest reward.
         #That "best reward" image will also have its perturbance and similarity recorded for future reference.
@@ -73,6 +78,7 @@ class MorphEnv(gym.Env):
         self.best_similarity = 0
 
         #Stores data for graphing
+        self.graph_file = None
         if graph_file is not None:
             self.graph_file = graph_file
             self.perturb_scores = []
@@ -133,18 +139,42 @@ class MorphEnv(gym.Env):
 
         #Get the results from the classifier.
         results = self.predict_wrapper(perturb_test, self.victim_data)
-
-        #If its a list, the "perturbance score" is the value found at the desired index (specified by new_class)
-        if self.result_type == "list":
-            perturbance = results[self.new_class]
-        #If its not a list, the "perturbance score" is 1 if value == new_class, 0 if otherwise.
+        successful_perturb = False
+        if self.new_class is None:
+            if self.result_type == "list" and np.argmax(results) != self.original_class:
+                successful_perturb = True
+            elif self.result_type == "object" and results != self.original_class:
+                successful_perturb = True
         else:
-            if results == self.new_class:
-                perturbance = 1
-            else:
-                perturbance = 0
+            if self.result_type == "list" and np.argmax(results) == self.new_class:
+                successful_perturb = True
+            elif self.result_type == "object" and results == self.new_class:
+                successful_perturb = True
 
-        #Similarity is measured by the distance between the original image and the perturbed image.
+        #If the attack is untargeted, perturbance is determined by how low the original class score is. 
+        if self.new_class is None:
+            #If the victim returns a list, the perturbance is how far the original score is from 1.
+            if self.result_type == "list":
+                perturbance = sum(results) - results[self.original_class]
+            #If its not a list, the perturbance is 0 if the result is still the original class, 1 if otherwise.
+            else:
+                if results == self.original_class:
+                    perturbance = 0
+                else:
+                    perturbance = 1
+        #If the attack is targeted, perturbance is determined by how high the new class score is. 
+        else:
+            #If the victim returns a list, the perturbance is the value found at the desired index (specified by new_class)
+            if self.result_type == "list":
+                perturbance = results[self.new_class]
+            #If its not a list, the perturbance is 1 if the result is the new class, 0 if otherwise.
+            else:
+                if results == self.new_class:
+                    perturbance = 1
+                else:
+                    perturbance = 0
+
+            #Similarity is measured by the distance between the original image and the perturbed image.
         euclid_distance = 0
         for row in range(self.shape[0]):
             for col in range(self.shape[1]):
@@ -155,26 +185,14 @@ class MorphEnv(gym.Env):
         
         # Renormalize the final result, take the square root, then subtract that value from 1 to find similarity.
         similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
-
-        #Reduction factor is still experimental.
-        #Once the image has been misclassified, it needs to focus on similarity.
-        #This reduction factor should be designed to reduce emphasis on perturbance
-        reduction_factor = 0.0001
-
-        #Perturbance threshold that determines when the reduction factor should be used.
-        reduction_threshold = 0.95
-        perturb_reward = perturbance
-
-        #If perturbance surpasses the threshold, any excess perturbance is reduced by the reduction_factor.
-        if self.result_type == 'list' and perturbance >= reduction_threshold:
-            perturb_reward = reduction_threshold + reduction_factor * (perturbance - reduction_threshold)
         
-        #reward = perturbance * similarity
-        reward = perturb_reward * similarity
+        reward = perturbance * similarity
         
         #If this perturbed image has a higher reward than the current best, then this image is the new best.
         improvement = True
-        if reward > self.best_reward:
+        if reward >= self.best_reward:
+            if reward == self.best_reward:
+                improvement = False
             self.best_reward = reward
             self.best_perturbance = perturbance
             self.best_similarity = similarity
@@ -212,12 +230,18 @@ class MorphEnv(gym.Env):
                 plt.close()
 
         #If the image has been successfully misclassified, save the result. 
-        if (self.result_type == 'list' and np.argmax(results) == self.new_class) or (self.result_type == 'object' and results == self.new_class):
+        if successful_perturb:
             #If the image has a higher similarity than the threshold, save and exit.
             if self.best_similarity >= self.similarity_threshold:
                 fake_image_file = f"Fake{self.image_file}"
                 cv2.imwrite(fake_image_file, self.perturb_image)
                 print(f"Successful perturb! Image saved at {fake_image_file}")
+                if self.result_type == "list":
+                    print(f"Original Index: {self.original_class}")
+                    print(f"New Index: {np.argmax(results)}")
+                else:
+                    print(f"Original Class: {self.original_class}")
+                    print(f"New Class: {results}")
                 exit()
             
             #If the image does not have a high enough similarity, save the checkpoint and continue (if checkpoint_level is 1 or higher).
@@ -268,6 +292,9 @@ class MorphEnv(gym.Env):
     
     def get_best_similarity(self):
         return self.best_similarity
+
+    def softmax(self, results):
+        return np.exp(results) / np.sum(np.exp(results))
     
     #If render_level > 1, display the original and perturbed images in pyplot.
     def render(self):
