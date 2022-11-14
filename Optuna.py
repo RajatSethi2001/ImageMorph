@@ -48,13 +48,12 @@ trials = 20
 timesteps = 2000
 
 class ParamFinder:
-    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, action, framework, param_file, trials, timesteps):
+    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, framework, param_file, trials, timesteps):
         self.predict_wrapper = predict_wrapper
         self.image_file = image_file
         self.grayscale = grayscale
         self.victim_data = victim_data
         self.new_class = new_class
-        self.action = action
         self.framework = framework
         self.param_file = param_file
         self.trials = trials

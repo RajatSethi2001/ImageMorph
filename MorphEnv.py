@@ -4,6 +4,7 @@ import gym
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+import random
 
 from gym.spaces import Box
 from os.path import exists
@@ -100,8 +101,9 @@ class MorphEnv(gym.Env):
         row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
         col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
         color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
-        pixel_change = np.uint8(np.round(action[3] * 255))
 
+        pixel_change = np.uint8(np.round(action[3] * 255))
+        
         perturb_test[row][col][color] = pixel_change
 
         #Get the results from the classifier.
@@ -120,7 +122,7 @@ class MorphEnv(gym.Env):
 
         #If the attack is untargeted, perturbance is determined by how low the original class score is. 
         if self.new_class is None:
-            #If the victim returns a list, the perturbance is how far the original score is from 1.
+            #If the victim returns a list, the perturbance is the sum of all other values.
             if self.result_type == "list":
                 perturbance = sum(results) - results[self.original_class]
             #If its not a list, the perturbance is 0 if the result is still the original class, 1 if otherwise.
@@ -141,7 +143,7 @@ class MorphEnv(gym.Env):
                 else:
                     perturbance = 0
 
-            #Similarity is measured by the distance between the original image and the perturbed image.
+        #Similarity is measured by the distance between the original image and the perturbed image.
         euclid_distance = 0
         for row in range(self.shape[0]):
             for col in range(self.shape[1]):
@@ -236,7 +238,7 @@ class MorphEnv(gym.Env):
             self.perturb_image = copy.deepcopy(self.original_image)
         else:
             self.perturb_image = copy.deepcopy(self.checkpoint_image)
-        
+
         #Reset the best image statistics.
         self.best_reward = 0
         self.best_perturbance = 0
@@ -259,9 +261,6 @@ class MorphEnv(gym.Env):
     
     def get_best_similarity(self):
         return self.best_similarity
-
-    def softmax(self, results):
-        return np.exp(results) / np.sum(np.exp(results))
     
     #If render_level > 1, display the original and perturbed images in pyplot.
     def render(self):
