@@ -37,7 +37,7 @@ new_class = 5
 similarity = 0.9
 
 #Which RL framework to use (A2C, PPO, TD3)
-framework = "A2C"
+framework = "PPO"
 
 # ===================================================================================================
 # ADVANCED PARAMETERS
