@@ -32,21 +32,26 @@ class MorphEnv(gym.Env):
             if self.checkpoint_file is not None and exists(self.checkpoint_file):
                 self.checkpoint_image = cv2.imread(self.checkpoint_file)
         
+        #Shape of the image.
+        self.shape = self.original_image.shape
+        self.reset_list = []
         #If no checkpoint is given, start from the original.
         if self.checkpoint_image is None:
             self.perturb_image = copy.deepcopy(self.original_image)
         else:
             self.perturb_image = copy.deepcopy(self.checkpoint_image)
-        
-        #Shape of the image.
-        self.shape = self.original_image.shape
+            for row in range(self.shape[0]):
+                for col in range(self.shape[1]):
+                    for color in range(self.shape[2]):
+                        if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
+                            self.reset_list.append((row, col, color))
 
         #The observation space is the space of all values that can be provided as input.
         #In this case, the agent should receive a matrix of pixels.
         self.observation_space = Box(low=0, high=255, shape=self.shape, dtype=np.uint8)
 
         self.action_space = Box(low=0, high=1, shape=(5,), dtype=np.float32)
-        self.reset_list = []
+        
 
         #Get current results to determine the type of output from classifier.
         #If the classifier returns a list, the agent will try to maximize the index determined from new_class
@@ -115,7 +120,16 @@ class MorphEnv(gym.Env):
 
         perturb_test[row][col][color] = pixel_change
         if len(self.reset_list) > 0:
-            reset_location = self.reset_list.pop(0)
+            min_distance = np.inf
+            reset_location = location
+            for changed_location in self.reset_list:
+                distance = 0
+                for dim in range(len(changed_location)):
+                    distance += (int(changed_location[dim]) - int(location[dim])) ** 2
+                if distance < min_distance:
+                    min_distance = distance
+                    reset_location = changed_location
+
             reset_row = reset_location[0]
             reset_col = reset_location[1]
             reset_color = reset_location[2]
@@ -281,17 +295,21 @@ class MorphEnv(gym.Env):
     #Reset the parameters (Only called during initialization (and sometimes evaluation))
     def reset(self):
         #Set the image back to what it was called
+        self.reset_list = []
         if self.checkpoint_image is None:
             self.perturb_image = copy.deepcopy(self.original_image)
         else:
             self.perturb_image = copy.deepcopy(self.checkpoint_image)
+            for row in range(self.shape[0]):
+                for col in range(self.shape[1]):
+                    for color in range(self.shape[2]):
+                        if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
+                            self.reset_list.append((row, col, color))
 
         #Reset the best image statistics.
         self.best_reward = 0
         self.best_perturbance = 0
         self.best_similarity = 0
-
-        self.reset_list = []
 
         #Reset the best image statistic scores.
         if self.graph_file is not None:
