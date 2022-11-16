@@ -19,16 +19,15 @@ def predict_wrapper(image, victim_data):
     image_input = image.reshape((1,) + image.shape)  / 255.0
     return victim.predict(image_input, verbose=0)[0]
 
-#Filename of image to be morphed (Will not affect the original image)
-image_file = "MNIST.png"
-
-#Is the image grayscale? True for Grayscale, False for RGB.
-grayscale = True
-
 #Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
     "model": models.load_model("mnist")
 }
+
+#Filename of image to be morphed (Will not affect the original image)
+attack_array = cv2.imread("MNIST.png", 0)
+
+array_range = (0, 255)
 
 # The intended outcome for perturbation.
 # If predict_wrapper returns a list of numbers, this is the index to maximize
@@ -48,11 +47,11 @@ trials = 20
 timesteps = 2000
 
 class ParamFinder:
-    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, framework, param_file, trials, timesteps):
+    def __init__(self, predict_wrapper, victim_data, attack_array, array_range, new_class, framework, param_file, trials, timesteps):
         self.predict_wrapper = predict_wrapper
-        self.image_file = image_file
-        self.grayscale = grayscale
         self.victim_data = victim_data
+        self.attack_array = attack_array
+        self.array_range = array_range
         self.new_class = new_class
         self.framework = framework
         self.param_file = param_file
@@ -104,7 +103,7 @@ class ParamFinder:
         hyperparams = self.get_a2c(trial)
 
         #Create an environment and model to test out the hyperparameters. 
-        env = MorphEnv(self.predict_wrapper, self.image_file, self.grayscale, self.victim_data, self.new_class, 1)
+        env = MorphEnv(self.predict_wrapper, self.victim_data, self.attack_array, self.array_range, self.new_class, similarity=1)
         model = A2C("MlpPolicy", env, **hyperparams)
 
         #Run the trial for the designated number of timesteps.
@@ -115,7 +114,7 @@ class ParamFinder:
         return reward
 
 if __name__=='__main__':
-    param_finder = ParamFinder(predict_wrapper, image_file, grayscale, victim_data, new_class, framework, param_file, trials, timesteps)
+    param_finder = ParamFinder(predict_wrapper, victim_data, attack_array, array_range, new_class, framework, param_file, trials, timesteps)
     param_finder.run()
 
 

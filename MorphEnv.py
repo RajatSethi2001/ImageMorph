@@ -10,53 +10,39 @@ from gym.spaces import Box
 from os.path import exists
 
 class MorphEnv(gym.Env):
-    def __init__(self, predict_wrapper, image_file, grayscale, victim_data, new_class, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, graph_file=None):
+    def __init__(self, predict_wrapper, victim_data, attack_array, array_range, new_class, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint=None, graph_file=None):
         self.predict_wrapper = predict_wrapper
         self.victim_data = victim_data
-        self.image_file = image_file
-        self.checkpoint_file = checkpoint_file
-        self.checkpoint_image = None
-        self.grayscale = grayscale
+        self.attack_array = attack_array
+        self.array_range = array_range
+        self.range = array_range[1] - array_range[0]
+        self.dtype = attack_array.dtype
+        self.checkpoint = checkpoint
         
-        #Grayscale images have to be opened independently from RGB images.
-        if self.grayscale:
-            self.original_image = cv2.imread(self.image_file, 0)
-            #Grayscale images are reshaped with an extra dimension for pixels, which makes processing slightly easier.
-            self.original_image = self.original_image.reshape(self.original_image.shape + (1,))
-            if self.checkpoint_file is not None and exists(self.checkpoint_file):
-                self.checkpoint_image = cv2.imread(self.checkpoint_file, 0)
-                self.checkpoint_image = self.checkpoint_image.reshape(self.checkpoint_image.shape + (1,))
-        #If not grayscale, image is a 3D RGB image
-        else:
-            self.original_image = cv2.imread(self.image_file)
-            if self.checkpoint_file is not None and exists(self.checkpoint_file):
-                self.checkpoint_image = cv2.imread(self.checkpoint_file)
-        
-        #Shape of the image.
-        self.shape = self.original_image.shape
+        #Shape of the array.
+        self.shape = self.attack_array.shape
         self.reset_set = set()
         #If no checkpoint is given, start from the original.
-        if self.checkpoint_image is None:
-            self.perturb_image = copy.deepcopy(self.original_image)
+        if self.checkpoint is None:
+            self.perturb_array = np.copy(self.attack_array)
         else:
-            self.perturb_image = copy.deepcopy(self.checkpoint_image)
-            for row in range(self.shape[0]):
-                for col in range(self.shape[1]):
-                    for color in range(self.shape[2]):
-                        if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
-                            self.reset_set.add((row, col, color))
+            self.perturb_array = np.copy(self.checkpoint)
+            for idx, _ in np.ndenumerate(self.perturb_array):
+                if self.perturb_array[idx] != self.attack_array[idx]:
+                    self.reset_set.add(idx)
 
         #The observation space is the space of all values that can be provided as input.
         #In this case, the agent should receive a matrix of pixels.
-        self.observation_space = Box(low=0, high=255, shape=self.shape, dtype=np.uint8)
+        self.observation_space = Box(low=self.array_range[0], high=self.array_range[1], shape=self.shape, dtype=self.dtype)
 
-        self.action_space = Box(low=0, high=1, shape=(5,), dtype=np.float32)
+        num_actions = len(self.shape) + 2
+        self.action_space = Box(low=0, high=1, shape=(num_actions,), dtype=np.float32)
         
 
         #Get current results to determine the type of output from classifier.
         #If the classifier returns a list, the agent will try to maximize the index determined from new_class
         #If the classifier returns something else, the agent will try to make new_class occur.
-        results = self.predict_wrapper(self.original_image, self.victim_data)
+        results = self.predict_wrapper(self.attack_array, self.victim_data)
         self.result_type = "object"
         if isinstance(results, list) or isinstance(results, np.ndarray):
             self.result_type = "list"
@@ -68,8 +54,8 @@ class MorphEnv(gym.Env):
         else:
             self.original_class = results
 
-        #Agent will store the image with the highest reward.
-        #That "best reward" image will also have its perturbance and similarity recorded for future reference.
+        #Agent will store the array with the highest reward.
+        #That "best reward" array will also have its perturbance and similarity recorded for future reference.
         self.best_reward = 0
         self.best_perturbance = 0
         self.best_similarity = 0
@@ -88,45 +74,32 @@ class MorphEnv(gym.Env):
         #Determines the verbosity of rendering progress and saving checkpoints.
         self.render_level = render_level
         self.checkpoint_level = checkpoint_level
-
-        #If pyplot is active, create the figures/subplots.
-        if self.render_level > 1:
-            plt.ion()
-            self.figure = plt.figure(figsize=(6,3))
-            self.plot1 = self.figure.add_subplot(1,2,1)
-            self.plot2 = self.figure.add_subplot(1,2,2)
         
         self.timesteps = 0
 
     #When the agent receives an action, it will act upon it and determine how good/bad the action was.
     def step(self, action):
         self.timesteps += 1
-        #Create a copy of the current perturbed image, then sample the action on this copy.
-        perturb_test = copy.deepcopy(self.perturb_image)
-        reset_test = copy.deepcopy(self.perturb_image)
-        
-        row = np.uint8(np.round(action[0] * (self.shape[0] - 1)))
-        col = np.uint8(np.round(action[1] * (self.shape[1] - 1)))
-        color = np.uint8(np.round(action[2] * (self.shape[2] - 1)))
-        location = (row, col, color)
+        #Create a copy of the current perturbed array, then sample the action on this copy.
+        perturb_test = np.copy(self.perturb_array)
+        reset_test = np.copy(self.perturb_array)
 
-        reset_row = row
-        reset_col = col
-        reset_color = color
+        location = []
+        for idx, dim in np.ndenumerate(action[0:len(self.shape)]):
+            scaled_dim = int(np.round(dim * (self.shape[idx[0]] - 1)))
+            location.append(scaled_dim)
+        location = tuple(location)
         reset_location = location
         
-        pixel_change = np.uint8(np.round(action[3] * 255))
-        reset_strength = action[4]
+        unit_change = np.round(action[len(action) - 2] * self.range + self.array_range[0]).astype(self.dtype)
+        reset_strength = action[len(action) - 1]
 
-        perturb_test[row][col][color] = pixel_change
+        perturb_test[location] = unit_change
         if len(self.reset_set) > 0:
             reset_tickets = {}
             ticket_floor = 0
             for perturbed_location in self.reset_set:
-                perturbed_row = perturbed_location[0]
-                perturbed_col = perturbed_location[1]
-                perturbed_color = perturbed_location[2]
-                contrast = abs(int(reset_test[perturbed_row][perturbed_col][perturbed_color]) - int(self.original_image[perturbed_row][perturbed_col][perturbed_color]))
+                contrast = abs(int(reset_test[perturbed_location]) - int(self.attack_array[perturbed_location]))
                 ticket_min = ticket_floor
                 ticket_max = ticket_min + contrast - 1
                 ticket_floor = ticket_max + 1
@@ -141,12 +114,8 @@ class MorphEnv(gym.Env):
                     reset_location = perturbed_location
                     break
 
-            reset_row = reset_location[0]
-            reset_col = reset_location[1]
-            reset_color = reset_location[2]
-
-            pixel_delta = int(np.round((int(self.original_image[reset_row][reset_col][reset_color]) - int(reset_test[reset_row][reset_col][reset_color])) * reset_strength))
-            reset_test[reset_row][reset_col][reset_color] += pixel_delta
+            pixel_delta = (float(self.attack_array[reset_location]) - float(reset_test[reset_location])) * reset_strength
+            reset_test[reset_location] = (reset_test[reset_location] + pixel_delta).astype(self.dtype)
 
         #Get the results from the classifier.
         perturb_data = self.collect_diagnostics(perturb_test)
@@ -159,9 +128,6 @@ class MorphEnv(gym.Env):
             perturb_action = False
             perturbance, similarity, reward, results = reset_data
             location = reset_location
-            row = reset_row
-            col = reset_col
-            color = reset_color
 
         successful_perturb = False
         if self.new_class is None:
@@ -175,7 +141,7 @@ class MorphEnv(gym.Env):
             elif self.result_type == "object" and results == self.new_class:
                 successful_perturb = True
         
-        #If this perturbed image has a higher reward than the current best, then this image is the new best.
+        #If this perturbed array has a higher reward than the current best, then this array is the new best.
         improvement = True
         if reward >= self.best_reward:
             if reward == self.best_reward:
@@ -184,16 +150,16 @@ class MorphEnv(gym.Env):
             self.best_perturbance = perturbance
             self.best_similarity = similarity
             if perturb_action:
-                self.perturb_image = copy.deepcopy(perturb_test)
+                self.perturb_array = copy.deepcopy(perturb_test)
             else:
-                self.perturb_image = copy.deepcopy(reset_test)
+                self.perturb_array = copy.deepcopy(reset_test)
 
         #Else, there is no reward
         else:
             reward = 0
             improvement = False
 
-        if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
+        if self.perturb_array[location] != self.attack_array[location]:
             if location not in self.reset_set:
                 self.reset_set.add(location)
         elif location in self.reset_set:
@@ -201,14 +167,8 @@ class MorphEnv(gym.Env):
 
         #If there is improvement, activate the render function (depending on the level provided).
         if improvement:
-            #If render_level > 0, print out perturbance and similarity of the best image.
-            if self.render_level > 0:
-                print_perturb = np.format_float_scientific(self.best_perturbance, 3)
-                print_similar = round(self.best_similarity * 100, 3)
-                print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
-
-            #If render_level > 1, update the pyplot.
-            if self.render_level > 1:
+            #If render_level > 0, print out perturbance and similarity of the best array.
+            if self.render_level:
                 self.render()
 
         if self.graph_file is not None:
@@ -226,13 +186,13 @@ class MorphEnv(gym.Env):
                 plt.savefig(self.graph_file)
                 plt.close()
 
-        #If the image has been successfully misclassified, save the result. 
+        #If the array has been successfully misclassified, save the result. 
         if successful_perturb:
-            #If the image has a higher similarity than the threshold, save and exit.
+            #If the array has a higher similarity than the threshold, save and exit.
             if self.best_similarity >= self.similarity_threshold:
-                fake_image_file = f"Fake{self.image_file}"
-                cv2.imwrite(fake_image_file, self.perturb_image)
-                print(f"Successful perturb! Image saved at {fake_image_file}")
+                fake_array_file = "FakeArray.npy"
+                np.save(fake_array_file, self.perturb_array)
+                print(f"Successful perturb! Array saved at {fake_array_file}")
                 if self.result_type == "list":
                     print(f"Original Index: {self.original_class}")
                     print(f"New Index: {np.argmax(results)}")
@@ -241,26 +201,22 @@ class MorphEnv(gym.Env):
                     print(f"New Class: {results}")
                 exit()
             
-            #If the image does not have a high enough similarity, save the checkpoint and continue (if checkpoint_level is 1 or higher).
+            #If the array does not have a high enough similarity, save the checkpoint and continue (if checkpoint_level is 1 or higher).
             elif improvement and self.checkpoint_level > 0:
-                fake_image_file = f"Checkpoint{self.image_file}"
-                if self.checkpoint_file is not None:
-                    fake_image_file = self.checkpoint_file
-                cv2.imwrite(fake_image_file, self.perturb_image)
-                print(f"Checkpoint image saved at {fake_image_file}")
+                fake_array_file = "Checkpoint.npy"
+                np.save(fake_array_file, self.perturb_array)
+                print(f"Checkpoint array saved at {fake_array_file}")
         
-        #If the image has improved at all, save it (if checkpoint_level is 2 or higher)
+        #If the array has improved at all, save it (if checkpoint_level is 2 or higher)
         elif improvement and self.checkpoint_level > 1:
-            checkpoint_image_file = f"Checkpoint{self.image_file}"
-            if self.checkpoint_file is not None:
-                checkpoint_image_file = self.checkpoint_file        
-            cv2.imwrite(checkpoint_image_file, self.perturb_image)
-            print(f"Checkpoint image saved at {checkpoint_image_file}")
+            checkpoint_array_file = "Checkpoint.npy"      
+            np.save(checkpoint_array_file, self.perturb_array)
+            print(f"Checkpoint array saved at {checkpoint_array_file}")
 
-        return self.perturb_image, reward, False, {}
+        return self.perturb_array, reward, False, {}
     
-    def collect_diagnostics(self, image):
-        results = self.predict_wrapper(image, self.victim_data)
+    def collect_diagnostics(self, perturb_array):
+        results = self.predict_wrapper(perturb_array, self.victim_data)
 
         #If the attack is untargeted, perturbance is determined by how low the original class score is. 
         if self.new_class is None:
@@ -285,14 +241,12 @@ class MorphEnv(gym.Env):
                 else:
                     perturbance = 0
 
-        #Similarity is measured by the distance between the original image and the perturbed image.
+        #Similarity is measured by the distance between the original array and the perturbed array.
         euclid_distance = 0
-        for row in range(self.shape[0]):
-            for col in range(self.shape[1]):
-                for color in range(self.shape[2]):
-                    # Find the difference in pixels, normalize the value, then square it.
-                    pixel_distance = ((int(image[row][col][color]) - int(self.original_image[row][col][color])) / 255.0) ** 2
-                    euclid_distance += pixel_distance
+        for idx, _ in np.ndenumerate(perturb_array):
+            # Find the difference in pixels, normalize the value, then square it.
+            pixel_distance = ((float(perturb_array[idx]) - float(self.attack_array[idx])) / self.range) ** 2
+            euclid_distance += pixel_distance
         
         # Renormalize the final result, take the square root, then subtract that value from 1 to find similarity.
         similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
@@ -303,30 +257,28 @@ class MorphEnv(gym.Env):
 
     #Reset the parameters (Only called during initialization (and sometimes evaluation))
     def reset(self):
-        #Set the image back to what it was called
+        #Set the array back to what it was called
         self.reset_set = set()
-        if self.checkpoint_image is None:
-            self.perturb_image = copy.deepcopy(self.original_image)
+        if self.checkpoint is None:
+            self.perturb_array = copy.deepcopy(self.attack_array)
         else:
-            self.perturb_image = copy.deepcopy(self.checkpoint_image)
-            for row in range(self.shape[0]):
-                for col in range(self.shape[1]):
-                    for color in range(self.shape[2]):
-                        if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
-                            self.reset_set.add((row, col, color))
+            self.perturb_array = copy.deepcopy(self.checkpoint)
+            for idx, _ in np.ndenumerate(self.perturb_array):
+                if self.perturb_array[idx] != self.attack_array[idx]:
+                    self.reset_set.add(idx)
 
-        #Reset the best image statistics.
+        #Reset the best array statistics.
         self.best_reward = 0
         self.best_perturbance = 0
         self.best_similarity = 0
 
-        #Reset the best image statistic scores.
+        #Reset the best array statistic scores.
         if self.graph_file is not None:
             self.perturb_scores = []
             self.similar_scores = []
             self.reward_scores = []
 
-        return self.perturb_image
+        return self.perturb_array
 
     #Return the best reward (Used by Optuna.py)
     def get_best_reward(self):
@@ -338,31 +290,9 @@ class MorphEnv(gym.Env):
     def get_best_similarity(self):
         return self.best_similarity
     
-    #If render_level > 1, display the original and perturbed images in pyplot.
+    #If render_level > 1, display the original and perturbed arrays in pyplot.
     def render(self):
-        self.plot_original()
-        self.plot_morph()
-        plt.pause(0.01)
-
-    def plot_original(self):
-        self.plot1.grid(False)
-        self.plot1.set_xticks([])
-        self.plot1.set_yticks([])
-
-        self.plot1.imshow(self.original_image, cmap='gray')
-
-        color = 'red'
-        if self.best_similarity >= self.similarity_threshold:
-            color = 'green'
-        
-        self.plot1.set_xlabel("Similarity = {}".format(round(self.best_similarity * 100, 1), color=color))
-
-    def plot_morph(self):
-        self.plot2.grid(False)
-        self.plot2.set_xticks([])
-        self.plot2.set_yticks([])
-
-        self.plot2.imshow(self.perturb_image, cmap='gray')
-
-        self.plot2.set_xlabel("Perturbance={:2.0f}".format(np.format_float_scientific(self.best_perturbance, 3)))
+        print_perturb = np.format_float_scientific(self.best_perturbance, 3)
+        print_similar = round(self.best_similarity * 100, 3)
+        print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
 
