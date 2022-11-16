@@ -34,7 +34,7 @@ class MorphEnv(gym.Env):
         
         #Shape of the image.
         self.shape = self.original_image.shape
-        self.reset_list = []
+        self.reset_set = set()
         #If no checkpoint is given, start from the original.
         if self.checkpoint_image is None:
             self.perturb_image = copy.deepcopy(self.original_image)
@@ -44,7 +44,7 @@ class MorphEnv(gym.Env):
                 for col in range(self.shape[1]):
                     for color in range(self.shape[2]):
                         if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
-                            self.reset_list.append((row, col, color))
+                            self.reset_set.add((row, col, color))
 
         #The observation space is the space of all values that can be provided as input.
         #In this case, the agent should receive a matrix of pixels.
@@ -119,17 +119,27 @@ class MorphEnv(gym.Env):
         reset_strength = action[4]
 
         perturb_test[row][col][color] = pixel_change
-        if len(self.reset_list) > 0:
-            max_contrast = 0
-            reset_location = location
-            for perturbed_location in self.reset_list:
+        if len(self.reset_set) > 0:
+            reset_tickets = {}
+            ticket_floor = 0
+            for perturbed_location in self.reset_set:
                 perturbed_row = perturbed_location[0]
                 perturbed_col = perturbed_location[1]
                 perturbed_color = perturbed_location[2]
                 contrast = abs(int(reset_test[perturbed_row][perturbed_col][perturbed_color]) - int(self.original_image[perturbed_row][perturbed_col][perturbed_color]))
-                if contrast > max_contrast:
-                    max_contrast = contrast
+                ticket_min = ticket_floor
+                ticket_max = ticket_min + contrast - 1
+                ticket_floor = ticket_max + 1
+                reset_tickets[perturbed_location] = (ticket_min, ticket_max)
+            
+            ticket = random.randint(0, ticket_floor - 1)
+
+            reset_location = location
+            for perturbed_location in self.reset_set:
+                location_tickets = reset_tickets[perturbed_location]
+                if ticket >= location_tickets[0] and ticket <= location_tickets[1]:
                     reset_location = perturbed_location
+                    break
 
             reset_row = reset_location[0]
             reset_col = reset_location[1]
@@ -137,8 +147,6 @@ class MorphEnv(gym.Env):
 
             pixel_delta = int(np.round((int(self.original_image[reset_row][reset_col][reset_color]) - int(reset_test[reset_row][reset_col][reset_color])) * reset_strength))
             reset_test[reset_row][reset_col][reset_color] += pixel_delta
-
-            self.reset_list.append(reset_location)
 
         #Get the results from the classifier.
         perturb_data = self.collect_diagnostics(perturb_test)
@@ -186,10 +194,10 @@ class MorphEnv(gym.Env):
             improvement = False
 
         if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
-            if location not in self.reset_list:
-                self.reset_list.append(location)
-        elif location in self.reset_list:
-            self.reset_list.remove(location)
+            if location not in self.reset_set:
+                self.reset_set.add(location)
+        elif location in self.reset_set:
+            self.reset_set.remove(location)
 
         #If there is improvement, activate the render function (depending on the level provided).
         if improvement:
@@ -296,7 +304,7 @@ class MorphEnv(gym.Env):
     #Reset the parameters (Only called during initialization (and sometimes evaluation))
     def reset(self):
         #Set the image back to what it was called
-        self.reset_list = []
+        self.reset_set = set()
         if self.checkpoint_image is None:
             self.perturb_image = copy.deepcopy(self.original_image)
         else:
@@ -305,7 +313,7 @@ class MorphEnv(gym.Env):
                 for col in range(self.shape[1]):
                     for color in range(self.shape[2]):
                         if self.perturb_image[row][col][color] != self.original_image[row][col][color]:
-                            self.reset_list.append((row, col, color))
+                            self.reset_set.add((row, col, color))
 
         #Reset the best image statistics.
         self.best_reward = 0
