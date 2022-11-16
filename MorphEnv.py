@@ -120,15 +120,16 @@ class MorphEnv(gym.Env):
 
         perturb_test[row][col][color] = pixel_change
         if len(self.reset_list) > 0:
-            min_distance = np.inf
+            max_contrast = 0
             reset_location = location
-            for changed_location in self.reset_list:
-                distance = 0
-                for dim in range(len(changed_location)):
-                    distance += (int(changed_location[dim]) - int(location[dim])) ** 2
-                if distance < min_distance:
-                    min_distance = distance
-                    reset_location = changed_location
+            for perturbed_location in self.reset_list:
+                perturbed_row = perturbed_location[0]
+                perturbed_col = perturbed_location[1]
+                perturbed_color = perturbed_location[2]
+                contrast = abs(int(reset_test[perturbed_row][perturbed_col][perturbed_color]) - int(self.original_image[perturbed_row][perturbed_col][perturbed_color]))
+                if contrast > max_contrast:
+                    max_contrast = contrast
+                    reset_location = perturbed_location
 
             reset_row = reset_location[0]
             reset_col = reset_location[1]
