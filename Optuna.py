@@ -24,9 +24,10 @@ victim_data = {
     "model": models.load_model("mnist")
 }
 
-#Filename of image to be morphed (Will not affect the original image)
+#Numpy array to be morphed (Will not affect the original file).
 attack_array = cv2.imread("MNIST.png", 0)
 
+#A 2-length tuple that stores the minimum and maximum values for the attack array.
 array_range = (0, 255)
 
 # The intended outcome for perturbation.
@@ -65,21 +66,17 @@ class ParamFinder:
             self.study = optuna.create_study(direction="maximize")
 
     def run(self):
-        if self.framework == "A2C":
-            self.study.optimize(self.optimize_a2c, n_trials=self.trials)
-        else:
-            raise Exception(f"Unknown Framework: {self.framework} - Available Frameworks: (A2C)")
-        
+        self.study.optimize(self.optimize_a2c, n_trials=self.trials)
         pickle.dump(self.study, open(self.param_file, 'wb'))
     
     def get_a2c(self, trial):
         #These are the hyperparameters that Stable-Baselines3 uses.
         #In particular, these are the hyperparameters suggested by rl-zoo.
-        gamma = trial.suggest_categorical("gamma", [0.9, 0.95, 0.98, 0.99, 0.995, 0.999, 0.9999])
-        normalize_advantage = trial.suggest_categorical("normalize_advantage", [True])
-        max_grad_norm = trial.suggest_categorical("max_grad_norm", [0.5, 0.6, 0.7, 0.8, 0.9, 1])
-        gae_lambda = trial.suggest_categorical("gae_lambda", [0.8, 0.9, 0.92, 0.95, 0.98, 0.99, 1.0])
         n_steps = trial.suggest_categorical("n_steps", [8, 16, 32, 64])
+        gamma = trial.suggest_categorical("gamma", [0.95, 0.98, 0.99, 0.995, 0.999])
+        gae_lambda = trial.suggest_categorical("gae_lambda", [0.9, 0.92, 0.95, 0.98, 0.99, 1.0])
+        max_grad_norm = trial.suggest_categorical("max_grad_norm", [0.5, 0.6, 0.7, 0.8, 0.9, 1])
+        
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 5e-2)
         ent_coef = trial.suggest_float("ent_coef", 0.000001, 0.1)
         vf_coef = trial.suggest_float("vf_coef", 0.1, 1)
@@ -90,21 +87,73 @@ class ParamFinder:
             "gae_lambda": gae_lambda,
             "learning_rate": learning_rate,
             "ent_coef": ent_coef,
-            "normalize_advantage": normalize_advantage,
             "max_grad_norm": max_grad_norm,
             "vf_coef": vf_coef,
         }
+    
+    def get_ppo(self, trial):
+        n_steps = trial.suggest_categorical("n_steps", [8, 16, 32, 64])
+        batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64])
+        gamma = trial.suggest_categorical("gamma", [0.95, 0.98, 0.99, 0.995, 0.999])
+        gae_lambda = trial.suggest_categorical("gae_lambda", [0.9, 0.92, 0.95, 0.98, 0.99, 1.0])
 
-    def optimize_a2c(self, trial):
+        learning_rate = trial.suggest_float("learning_rate", 1e-4, 5e-2)
+        ent_coef = trial.suggest_float("ent_coef", 0.000001, 0.1)
+        vf_coef = trial.suggest_float("vf_coef", 0.1, 1)
+
+        if batch_size > n_steps:
+            batch_size = n_steps
+
+        return {
+            "n_steps": n_steps,
+            "batch_size": batch_size,
+            "gamma": gamma,
+            "gae_lambda": gae_lambda,
+            "learning_rate": learning_rate,
+            "ent_coef": ent_coef,
+            "vf_coef": vf_coef
+        }
+    
+    def get_td3(self, trial):
+        buffer_size = trial.suggest_categorical("buffer_size", [int(1e4), int(1e5), int(1e6)])
+        batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64])
+        gamma = trial.suggest_categorical("gamma", [0.95, 0.98, 0.99, 0.995, 0.999])
+        tau = trial.suggest_categorical("tau", [0.001, 0.005, 0.01, 0.02, 0.05])
+        train_freq = trial.suggest_categorical("train_freq", [1, 4, 8, 16, 32, 64, 128])
+        gradient_steps = train_freq
+
+        learning_rate = trial.suggest_float("learning_rate", 1e-4, 5e-2)
+
+        return {
+            "buffer_size": buffer_size,
+            "batch_size": batch_size,
+            "gamma": gamma,
+            "tau": tau,
+            "train_freq": train_freq,
+            "gradient_steps": gradient_steps,
+            "learning_rate": learning_rate
+        }
+
+    def optimize_framework(self, trial):
         #Save the current study in the pickle file.
         pickle.dump(self.study, open(self.param_file, 'wb'))
 
-        #Guess the optimal hyperparameters for testing in this trial.
-        hyperparams = self.get_a2c(trial)
-
         #Create an environment and model to test out the hyperparameters. 
         env = MorphEnv(self.predict_wrapper, self.victim_data, self.attack_array, self.array_range, self.new_class, similarity=1)
-        model = A2C("MlpPolicy", env, **hyperparams)
+
+        hyperparams = {}
+        #Guess the optimal hyperparameters for testing in this trial.
+        if self.framework == "A2C":
+            hyperparams = self.get_a2c(trial)
+            model = A2C("MlpPolicy", env, **hyperparams)
+        elif self.framework == "PPO":
+            hyperparams = self.get_ppo(trial)
+            model = PPO("MlpPolicy", env, **hyperparams)
+        elif self.framework == "TD3":
+            hyperparams = self.get_td3(trial)
+            model = TD3("MlpPolicy", env, **hyperparams)
+        else:
+            raise Exception(f"Unknown Framework: {self.framework} - Available Frameworks: (A2C)")
 
         #Run the trial for the designated number of timesteps.
         model.learn(self.timesteps, progress_bar=True)
