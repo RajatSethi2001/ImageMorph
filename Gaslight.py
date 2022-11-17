@@ -17,7 +17,7 @@ from MorphEngine import run
 def predict_wrapper(image, victim_data):
     victim = victim_data["model"]
     image_input = image.reshape((1,) + image.shape) / 255.0
-    return victim.predict(image_input, verbose=0)[0]
+    return np.argmax(victim.predict(image_input, verbose=0)[0])
 
 #Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
@@ -25,7 +25,7 @@ victim_data = {
 }
 
 #Numpy array to be morphed (Will not affect the original file).
-attack_array = cv2.imread("MNIST.png")
+attack_array = cv2.imread("MNIST.png", 0)
 
 #A 2-length tuple that stores the minimum and maximum values for the attack array.
 array_range = (0, 255)

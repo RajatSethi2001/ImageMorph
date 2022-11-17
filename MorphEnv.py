@@ -117,7 +117,7 @@ class MorphEnv(gym.Env):
         perturb_test = np.copy(self.perturb_array)
 
         #If the current similarity is too low, activate and sample the reset action on another copy.
-        if self.best_similarity < self.similarity_threshold:
+        if self.best_reward > 0 and self.best_similarity < self.similarity_threshold:
             reset_test = np.copy(self.perturb_array)
 
         #Determine what the new value magnitude should be.
@@ -138,7 +138,7 @@ class MorphEnv(gym.Env):
         perturb_test[location] = unit_change
 
         #Reset actions only occur if there are values to revert and if similarity is too low.
-        if len(self.reset_set) > 0 and self.best_similarity < self.similarity_threshold:
+        if len(self.reset_set) > 0 and self.best_similarity < self.similarity_threshold and self.best_reward > 0:
 
             #A dictionary of "tickets" that determine which value gets reset.
             reset_tickets = {}
@@ -183,12 +183,12 @@ class MorphEnv(gym.Env):
         #Get the results from the classifier.
         perturb_data = self.collect_diagnostics(perturb_test)
         #If reset action activated, also grab its results.
-        if self.best_similarity < self.similarity_threshold:
+        if self.best_reward > 0 and self.best_similarity < self.similarity_threshold:
             reset_data = self.collect_diagnostics(reset_test)
         
         #Determine if the perturb or reset action yielded a better reward, and use that for the primary action of this step.
         perturb_action = True
-        if self.best_similarity >= self.similarity_threshold or perturb_data[2] >= reset_data[2]:
+        if self.best_reward == 0 or self.best_similarity >= self.similarity_threshold or perturb_data[2] >= reset_data[2]:
             perturbance, similarity, reward, results = perturb_data
         else:
             perturb_action = False
@@ -211,8 +211,6 @@ class MorphEnv(gym.Env):
         #If this perturbed array has a higher reward than the current best, then this array is the new best.
         improvement = True
         if reward >= self.best_reward:
-            if reward == self.best_reward:
-                improvement = False
             self.best_reward = reward
             self.best_perturbance = perturbance
             self.best_similarity = similarity
