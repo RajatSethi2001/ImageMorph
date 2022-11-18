@@ -39,6 +39,9 @@ new_class = 2
 #Minimum similarity needed for a successful morph [0-1]
 similarity = 0.9
 
+#Name of the .npy file used to save the final results when successfully perturbed.
+result_file = "FinalMNIST.npy"
+
 #Which RL framework to use (A2C, PPO, TD3)
 framework = "PPO"
 
@@ -49,27 +52,24 @@ framework = "PPO"
 # Assume these are the default settings, they can be left alone.
 # ===================================================================================================
 
-#0 for no render, 1 to print best perturbance + similarity
-render_level = 1
+#Display progress after how many steps. Set to 0 for no render.
+render_interval = 10
 
-#0 for only saving the final result, 1 for also saving results that beat the classifier but not similarity, 2 for saving results with the best reward
-checkpoint_level = 2
+#Save model, checkpoint, and graph after how many steps. Set to 0 for no save.
+save_interval = 100
 
-#Checkpoint File to start and save perturbation (Should be a .npy file with the same shape as attack_array). Set to None to use original.
-# Note: If checkpoint_file is None, checkpoints and final results will be stored in "Checkpoint.npy"
+#Checkpoint file used to start (if it exists) and save perturbation (Should be a .npy file with the same shape as attack_array). 
+#Set to None to disable checkpoints. (Note: Checkpoints can also be turned off by save_interval)
 checkpoint_file = "CheckpointMNIST.npy"
 
-#File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: This is independent from render_level).
+#File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: Graphing can also be turned off by save_interval).
 graph_file = None
 
 #Which RL model to use/save to (If it doesn't exist, it will be created). Stable-Baselines3 uses a .zip file. Set to None for no model.
 rl_model = None
 
-#Save model after how many steps. Set to 0 for no save.
-save_interval = 0
-
 #Which hyperparameter pickle file to use from Optuna.py (Make sure it matches the framework). Set to None to use default hyperparameters
 param_file = None
 
-run(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity, framework, render_level, checkpoint_level, checkpoint_file, graph_file, rl_model, save_interval, param_file)
+run(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity, result_file, framework, render_interval, save_interval, checkpoint_file, graph_file, rl_model, param_file)
 

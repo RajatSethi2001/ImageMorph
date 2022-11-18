@@ -10,7 +10,7 @@ from gym.spaces import Box
 from os.path import exists
 
 class MorphEnv(gym.Env):
-    def __init__(self, predict_wrapper, victim_data, attack_array, array_range, new_class, similarity=0.7, render_level=0, checkpoint_level=0, checkpoint_file=None, graph_file=None):
+    def __init__(self, predict_wrapper, victim_data, attack_array, array_range, new_class, similarity=0.8, result_file="ResultFile.npy", render_interval=0, save_interval=0, checkpoint_file=None, graph_file=None):
         #Wrapper that will take the perturbed array, have the victim make a prediction, then return the results.
         self.predict_wrapper = predict_wrapper
 
@@ -81,6 +81,12 @@ class MorphEnv(gym.Env):
         else:
             self.original_class = results
 
+        #What similarity is required for a successful morph.
+        self.similarity_threshold = similarity
+
+        #Location where the final results will be stored.
+        self.result_file = result_file
+
         #Agent will store the array with the highest reward.
         #That "best reward" array will also have its perturbance and similarity recorded for future reference.
         self.best_reward = 0
@@ -95,15 +101,14 @@ class MorphEnv(gym.Env):
             self.similar_scores = []
             self.reward_scores = []
 
-        #What similarity is required for a successful morph.
-        self.similarity_threshold = similarity
-
-        #Determines the verbosity of rendering progress and saving checkpoints.
-        self.render_level = render_level
-        self.checkpoint_level = checkpoint_level
-        
         #Number of steps taken so far.
         self.timesteps = 0
+
+        #Periodic interval that prints progress.
+        self.render_interval = render_interval
+
+        #Periodic interval that saves model, checkpoint, and graph (if they exist)
+        self.save_interval = save_interval
 
     #When the agent receives an action, it will act upon it and determine how good/bad the action was.
     def step(self, action):
@@ -209,7 +214,6 @@ class MorphEnv(gym.Env):
                 successful_perturb = True
         
         #If this perturbed array has a higher reward than the current best, then this array is the new best.
-        improvement = True
         if reward >= self.best_reward:
             self.best_reward = reward
             self.best_perturbance = perturbance
@@ -222,7 +226,6 @@ class MorphEnv(gym.Env):
         #Else, there is no reward
         else:
             reward = 0
-            improvement = False
 
         #Add or remove the value from reset_set, depending on what the new value is and how it compares to the original.
         if self.perturb_array[location] != self.attack_array[location]:
@@ -231,19 +234,17 @@ class MorphEnv(gym.Env):
         elif location in self.reset_set:
             self.reset_set.remove(location)
 
-        #If there is improvement, activate the render function (depending on the level provided).
-        if improvement:
-            #If render_level > 0, print out perturbance and similarity of the best array.
-            if self.render_level:
-                self.render()
+        #When the render interval passes, print out the best perturbance and similarity.
+        if self.render_interval > 0 and self.timesteps % self.render_interval == 0:
+            self.render()
 
         #If graphing is on, save the reward progression.
-        if self.graph_file is not None:
+        if self.save_interval > 0 and self.graph_file is not None:
             self.perturb_scores.append(self.best_perturbance)
             self.similar_scores.append(self.best_similarity)
             self.reward_scores.append(self.best_reward)
-            #If there was an improvement, redraw the graph.
-            if improvement:
+            #If save interval passes, redraw the graph.
+            if self.timesteps % self.save_interval == 0:
                 timestep_list = list(range(self.timesteps))
                 plt.plot(timestep_list, self.perturb_scores, label="Perturbance")
                 plt.plot(timestep_list, self.similar_scores, label="Similarity")
@@ -254,36 +255,22 @@ class MorphEnv(gym.Env):
                 plt.savefig(self.graph_file)
                 plt.close()
 
-        #If the array has been successfully misclassified, save the result. 
-        if successful_perturb:
-            #If the array has a higher similarity than the threshold, save and exit.
-            if self.best_similarity >= self.similarity_threshold:
-                fake_array_file = "FakeArray.npy"
-                np.save(fake_array_file, self.perturb_array)
-                print(f"Successful perturb! Array saved at {fake_array_file}")
-                if self.result_type == "list":
-                    print(f"Original Index: {self.original_class}")
-                    print(f"New Index: {np.argmax(results)}")
-                else:
-                    print(f"Original Class: {self.original_class}")
-                    print(f"New Class: {results}")
-                exit()
-            
-            #If the array does not have a high enough similarity, save the checkpoint and continue (if checkpoint_level is 1 or higher).
-            elif improvement and self.checkpoint_level > 0:
-                fake_array_file = "Checkpoint.npy"
-                if self.checkpoint_file is not None:
-                    fake_array_file = self.checkpoint_file
-                np.save(fake_array_file, self.perturb_array)
-                print(f"Checkpoint array saved at {fake_array_file}")
+        #If the array has been successfully misclassified and has a higher similarity than the threshold, save the result. 
+        if successful_perturb and self.best_similarity >= self.similarity_threshold:
+            np.save(self.result_file, self.perturb_array)
+            print(f"Successful perturb! Array saved at {self.result_file}")
+            if self.result_type == "list":
+                print(f"Original Index: {self.original_class}")
+                print(f"New Index: {np.argmax(results)}")
+            else:
+                print(f"Original Class: {self.original_class}")
+                print(f"New Class: {results}")
+            exit()
         
-        #If the array has improved at all, save it (if checkpoint_level is 2 or higher)
-        elif improvement and self.checkpoint_level > 1:
-            checkpoint_array_file = "Checkpoint.npy"
-            if self.checkpoint_file is not None:
-                checkpoint_array_file = self.checkpoint_file
-            np.save(checkpoint_array_file, self.perturb_array)
-            print(f"Checkpoint array saved at {checkpoint_array_file}")
+        #If save interval passes, save the current checkpoint
+        elif self.save_interval > 0 and self.timesteps % self.save_interval == 0 and self.checkpoint_file is not None:
+            np.save(self.checkpoint_file, self.perturb_array)
+            print(f"Checkpoint array saved at {self.checkpoint_file}")
 
         return self.perturb_array, reward, False, {}
     

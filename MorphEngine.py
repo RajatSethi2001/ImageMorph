@@ -27,7 +27,7 @@ class MorphCheckpoint(CheckpointCallback):
                 self.model.save(self.rl_model)
         return True
 
-def run(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity=0.7, framework="PPO", render_level=0, checkpoint_level=0, checkpoint_file=None, graph_file=None, rl_model=None, save_interval=1000, param_file=None):
+def run(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity=0.8, result_file="ResultFile.npy", framework="PPO", render_interval=0, save_interval=0, checkpoint_file=None, graph_file=None,  rl_model=None,  param_file=None):
     #Hyperparameters collected from Optuna.py
     hyperparams = {}
     if param_file is not None:
@@ -35,7 +35,7 @@ def run(predict_wrapper, victim_data, attack_array, array_range, new_class, simi
         hyperparams = study.best_params
 
     #Environment that will conduct the attack.
-    env = MorphEnv(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity, render_level, checkpoint_level, checkpoint_file, graph_file)
+    env = MorphEnv(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity, result_file, render_interval, save_interval, checkpoint_file, graph_file)
     checkpoint_callback = MorphCheckpoint(save_interval, rl_model)
 
     if framework not in {"A2C", "PPO", "TD3"}:
