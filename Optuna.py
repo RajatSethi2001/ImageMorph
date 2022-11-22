@@ -4,7 +4,7 @@ import optuna
 import pickle
 import tensorflow as tf
 
-from MorphEnv import MorphEnv
+from GaslightEnv import GaslightEnv
 from os.path import exists
 from stable_baselines3 import PPO, TD3, A2C
 from stable_baselines3.common.callbacks import BaseCallback
@@ -139,7 +139,7 @@ class ParamFinder:
         pickle.dump(self.study, open(self.param_file, 'wb'))
 
         #Create an environment and model to test out the hyperparameters. 
-        env = MorphEnv(self.predict_wrapper, self.victim_data, self.attack_array, self.array_range, self.new_class, similarity=1)
+        env = GaslightEnv(self.predict_wrapper, self.victim_data, self.attack_array, self.array_range, self.new_class, similarity=1)
 
         hyperparams = {}
         #Guess the optimal hyperparameters for testing in this trial.

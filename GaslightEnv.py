@@ -9,7 +9,7 @@ import random
 from gym.spaces import Box
 from os.path import exists
 
-class MorphEnv(gym.Env):
+class GaslightEnv(gym.Env):
     def __init__(self, predict_wrapper, victim_data, attack_array, array_range, new_class, similarity=0.8, result_file="ResultFile.npy", render_interval=0, save_interval=0, checkpoint_file=None, graph_file=None):
         #Wrapper that will take the perturbed array, have the victim make a prediction, then return the results.
         self.predict_wrapper = predict_wrapper
@@ -18,7 +18,7 @@ class MorphEnv(gym.Env):
         self.victim_data = victim_data
 
         #The original array to get perturbed and force a misclassification.
-        self.attack_array = attack_array
+        self.original_array = attack_array
 
         #A 2-length tuple containing the minimum and maximum values within the attack_array.
         self.array_range = array_range
@@ -27,7 +27,9 @@ class MorphEnv(gym.Env):
         self.range = array_range[1] - array_range[0]
 
         #The datatype of the array.
-        self.dtype = attack_array.dtype
+        self.dtype = self.original_array.dtype
+
+        self.attack_array = self.scaleDown(self.original_array, self.array_range[0], self.array_range[1])
 
         #A string containing the path to the checkpoint file.
         self.checkpoint_file = checkpoint_file
@@ -36,6 +38,7 @@ class MorphEnv(gym.Env):
         self.checkpoint = None
         if self.checkpoint_file is not None and exists(self.checkpoint_file):
             self.checkpoint = np.load(self.checkpoint_file)
+            self.checkpoint = self.scaleDown(self.checkpoint, self.array_range[0], self.array_range[1])
         
         #Shape of the array.
         self.shape = self.attack_array.shape
@@ -55,21 +58,20 @@ class MorphEnv(gym.Env):
 
         #The observation space is the space of all values that can be provided as input.
         #In this case, the agent should receive a matrix of values.
-        self.observation_space = Box(low=self.array_range[0], high=self.array_range[1], shape=self.shape, dtype=self.dtype)
+        self.observation_space = Box(low=0, high=1, shape=self.shape, dtype=np.float32)
 
         #Actions are made up of three components:
-        #0 - Unit Change - What the value should be changed to (after scaling)
-        #1 - Reset Strength - During a reset action, what percentage of the gap between the perturbed and original array should be closed.
-        #2+ - The index of the value to pick. Each dimension gets their own action.
-        num_actions = len(self.shape) + 2
-        self.action_space = Box(low=0, high=1, shape=(num_actions,), dtype=np.float32)
+        #Strength - What the value should be changed to (after scaling)
+        #Index of the value to pick. Each dimension gets their own action.
+        self.action_space = Box(low=0, high=1, shape=(2, len(self.shape) + 1), dtype=np.float32)
         
         #Get current results to determine the type of output from classifier.
         #If the classifier returns a list, the agent will try to maximize the index determined from new_class
         #If the classifier returns something else, the agent will try to make new_class occur.
-        results = self.predict_wrapper(self.attack_array, self.victim_data)
+        input_array = self.scaleUp(self.perturb_array, self.array_range[0], self.array_range[1], self.dtype)
+        results = self.predict_wrapper(input_array, self.victim_data)
         self.result_type = "object"
-        if isinstance(results, list) or isinstance(results, np.ndarray):
+        if isinstance(results, list) or isinstance(results, tuple) or isinstance(results, np.ndarray):
             self.result_type = "list"
 
         #The new classification after a successful perturbation.
@@ -87,20 +89,20 @@ class MorphEnv(gym.Env):
         #Location where the final results will be stored.
         self.result_file = result_file
 
-        #Agent will store the array with the highest reward.
-        #That "best reward" array will also have its perturbance and similarity recorded for future reference.
-        self.best_reward = 0
-        self.best_perturbance = 0
+        #Agent will store the array with the highest score.
+        #That "best score" array will also have its misclassification and similarity recorded for future reference.
+        self.best_score = 0
+        self.best_misclassification = 0
         self.best_similarity = 0
 
         #Stores data for graphing
         self.graph_file = None
         if graph_file is not None:
             self.graph_file = graph_file
-            self.perturb_scores = []
-            self.similar_scores = []
-            self.reward_scores = []
-
+            self.best_score_record = []
+            self.best_misclassification_record = []
+            self.best_similarity_record = []
+        
         #Number of steps taken so far.
         self.timesteps = 0
 
@@ -115,91 +117,66 @@ class MorphEnv(gym.Env):
         #Each action is actually two separate perturbances.
         #The first action changes a specified value to a specified magnitude, as determined by the neural network.
         #The second action takes a previously changed value and moves it closer to the original.
-
         self.timesteps += 1
 
         #Create a copy of the current perturbed array, then sample the action on this copy.
         perturb_test = np.copy(self.perturb_array)
+        perturb_strength = action[0][0]
+        perturb_location = action[0][1::]
+
+        for idx, dim in np.ndenumerate(perturb_location):
+            perturb_location[idx[0]] = self.scaleUp(dim, 0, self.shape[idx[0]] - 1, int)
+        
+        perturb_location = tuple(perturb_location.astype(int))
 
         #If the current similarity is too low, activate and sample the reset action on another copy.
-        if self.best_reward > 0 and self.best_similarity < self.similarity_threshold:
+        if len(self.reset_set) > 0 and self.best_similarity < self.similarity_threshold and self.best_score > 0:
             reset_test = np.copy(self.perturb_array)
+            reset_strength = action[1][0]
+            reset_location = action[1][1::]
 
-        #Determine what the new value magnitude should be.
-        unit_change = np.round(action[0] * self.range + self.array_range[0]).astype(self.dtype)
-        
-        #If a reset occurs, what percentage of the gap is closed between the original and current values.
-        reset_strength = action[1]
+            for idx, dim in np.ndenumerate(reset_location):
+                reset_location[idx[0]] = self.scaleUp(dim, 0, self.shape[idx[0]] - 1, int)
+            
+            reset_location = tuple(reset_location.astype(int))
 
-        #Convert the rest of the action space into the designated index to modify.
-        location = []
-        for idx, dim in np.ndenumerate(action[2:len(action)]):
-            scaled_dim = int(np.round(dim * (self.shape[idx[0]] - 1)))
-            location.append(scaled_dim)
-        location = tuple(location)
-        reset_location = location
-        
         #Perform the unit change action on the designated location.
-        perturb_test[location] = unit_change
+        perturb_test[perturb_location] = perturb_strength
 
         #Reset actions only occur if there are values to revert and if similarity is too low.
-        if len(self.reset_set) > 0 and self.best_similarity < self.similarity_threshold and self.best_reward > 0:
-
-            #A dictionary of "tickets" that determine which value gets reset.
-            reset_tickets = {}
-
-            #Start with ticket 0
-            ticket_floor = 0
-
-            #Every perturbed location will get a range of tickets.
-            for perturbed_location in self.reset_set:
-
-                #Find the difference between original and perturbed values. Larger contrasts yield higher tickets.
-                contrast = abs(int(reset_test[perturbed_location]) - int(self.attack_array[perturbed_location]))
-
-                #Start with the last value of the previous value.
-                ticket_min = ticket_floor
-
-                #Add one ticket per level of contrast.
-                ticket_max = ticket_min + contrast - 1
-
-                #New floor for the next value is one above the current max.
-                ticket_floor = ticket_max + 1
-
-                #Store the ticket until its time to draw.
-                reset_tickets[perturbed_location] = (ticket_min, ticket_max)
-            
-            #Draw a random ticket, values with higher contrasts are more likely to get picked.
-            ticket = random.randint(0, ticket_floor - 1)
-
-            #Re-iterate through all the perturbed values.
-            reset_location = location
-            for perturbed_location in self.reset_set:
-                location_tickets = reset_tickets[perturbed_location]
-                #Find the winner, store its location, then break.
-                if ticket >= location_tickets[0] and ticket <= location_tickets[1]:
-                    reset_location = perturbed_location
-                    break
-            
+        if len(self.reset_set) > 0 and self.best_similarity < self.similarity_threshold and self.best_score > 0:
+            closest_distance = sum([(dim - 1) ** 2 for dim in self.shape])
+            closest_location = None
+            for changed_location in self.reset_set:
+                distance = 0
+                for idx in range(len(changed_location)):
+                    distance += (reset_location[idx] - changed_location[idx]) ** 2
+                if distance <= closest_distance:
+                    closest_distance = distance
+                    closest_location = changed_location
+                
             #Reset the value by moving it's value closer to the original.
-            value_delta = (float(self.attack_array[reset_location]) - float(reset_test[reset_location])) * reset_strength
-            reset_test[reset_location] = (reset_test[reset_location] + value_delta).astype(self.dtype)
+            value_delta = (self.perturb_array[closest_location] - reset_test[closest_location]) * reset_strength
+            reset_test[closest_location] = reset_test[closest_location] + value_delta
+            reset_location = closest_location
 
         #Get the results from the classifier.
         perturb_data = self.collect_diagnostics(perturb_test)
         #If reset action activated, also grab its results.
-        if self.best_reward > 0 and self.best_similarity < self.similarity_threshold:
+        if len(self.reset_set) > 0 and self.best_similarity < self.similarity_threshold and self.best_score > 0:
             reset_data = self.collect_diagnostics(reset_test)
         
-        #Determine if the perturb or reset action yielded a better reward, and use that for the primary action of this step.
+        #Determine if the perturb or reset action yielded a better score, and use that for the primary action of this step.
         perturb_action = True
-        if self.best_reward == 0 or self.best_similarity >= self.similarity_threshold or perturb_data[2] >= reset_data[2]:
-            perturbance, similarity, reward, results = perturb_data
-        else:
+        affected_location = tuple(perturb_location)
+        if len(self.reset_set) > 0 and self.best_similarity < self.similarity_threshold and self.best_score > 0 and reset_data[2] > perturb_data[2]:
             perturb_action = False
-            perturbance, similarity, reward, results = reset_data
-            location = reset_location
+            misclassification, similarity, score, results = reset_data
+            affected_location = tuple(reset_location)
+        else: 
+            misclassification, similarity, score, results = perturb_data
 
+        # print(affected_location)
         #Determine if the perturb was successful (Misclassified and High Similarity)
         successful_perturb = False
         if self.new_class is None:
@@ -213,42 +190,39 @@ class MorphEnv(gym.Env):
             elif self.result_type == "object" and results == self.new_class:
                 successful_perturb = True
         
-        #If this perturbed array has a higher reward than the current best, then this array is the new best.
-        if reward >= self.best_reward:
-            self.best_reward = reward
-            self.best_perturbance = perturbance
+        #If this perturbed array has a higher score than the current best, then this array is the new best.
+        reward = score - self.best_score
+        if score >= self.best_score:
+            self.best_score = score
+            self.best_misclassification = misclassification
             self.best_similarity = similarity
             if perturb_action:
                 self.perturb_array = copy.deepcopy(perturb_test)
             else:
                 self.perturb_array = copy.deepcopy(reset_test)
 
-        #Else, there is no reward
-        else:
-            reward = 0
-
         #Add or remove the value from reset_set, depending on what the new value is and how it compares to the original.
-        if self.perturb_array[location] != self.attack_array[location]:
-            if location not in self.reset_set:
-                self.reset_set.add(location)
-        elif location in self.reset_set:
-            self.reset_set.remove(location)
+        if self.perturb_array[affected_location] != self.attack_array[affected_location]:
+            if affected_location not in self.reset_set:
+                self.reset_set.add(affected_location)
+        elif affected_location in self.reset_set:
+            self.reset_set.remove(affected_location)
 
-        #When the render interval passes, print out the best perturbance and similarity.
+        #When the render interval passes, print out the best score, misclassification, and similarity.
         if self.render_interval > 0 and self.timesteps % self.render_interval == 0:
             self.render()
 
-        #If graphing is on, save the reward progression.
+        #If graphing is on, save the score progression.
         if self.save_interval > 0 and self.graph_file is not None:
-            self.perturb_scores.append(self.best_perturbance)
-            self.similar_scores.append(self.best_similarity)
-            self.reward_scores.append(self.best_reward)
+            self.best_score_record.append(self.best_score)
+            self.best_misclassification_record.append(self.best_misclassification)
+            self.best_similarity_record.append(self.best_similarity)
             #If save interval passes, redraw the graph.
             if self.timesteps % self.save_interval == 0:
-                timestep_list = list(range(self.timesteps))
-                plt.plot(timestep_list, self.perturb_scores, label="Perturbance")
-                plt.plot(timestep_list, self.similar_scores, label="Similarity")
-                plt.plot(timestep_list, self.reward_scores, label="Best Reward")
+                timestep_record = list(range(self.timesteps))
+                plt.plot(timestep_record, self.best_score_record, label="Best Score")
+                plt.plot(timestep_record, self.best_misclassification_record, label="Misclassification")
+                plt.plot(timestep_record, self.best_similarity_record, label="Similarity")
                 plt.xlabel("Timesteps")
                 plt.ylabel("Score [0-1]")
                 plt.legend()
@@ -257,7 +231,8 @@ class MorphEnv(gym.Env):
 
         #If the array has been successfully misclassified and has a higher similarity than the threshold, save the result. 
         if successful_perturb and self.best_similarity >= self.similarity_threshold:
-            np.save(self.result_file, self.perturb_array)
+            save_array = self.scaleUp(self.perturb_array, self.array_range[0], self.array_range[1], self.dtype)
+            np.save(self.result_file, save_array)
             print(f"Successful perturb! Array saved at {self.result_file}")
             if self.result_type == "list":
                 print(f"Original Index: {self.original_class}")
@@ -269,51 +244,53 @@ class MorphEnv(gym.Env):
         
         #If save interval passes, save the current checkpoint
         elif self.save_interval > 0 and self.timesteps % self.save_interval == 0 and self.checkpoint_file is not None:
-            np.save(self.checkpoint_file, self.perturb_array)
+            save_array = self.scaleUp(self.perturb_array, self.array_range[0], self.array_range[1], self.dtype)
+            np.save(self.checkpoint_file, save_array)
             print(f"Checkpoint array saved at {self.checkpoint_file}")
 
         return self.perturb_array, reward, False, {}
     
     def collect_diagnostics(self, perturb_array):
         #Get the results from the classifier.
-        results = self.predict_wrapper(perturb_array, self.victim_data)
+        perturb_input = self.scaleUp(perturb_array, self.array_range[0], self.array_range[1], self.dtype)
+        results = self.predict_wrapper(perturb_input, self.victim_data)
 
-        #If the attack is untargeted, perturbance is determined by how low the original class score is. 
+        #If the attack is untargeted, misclassification is determined by how low the original class score is. 
         if self.new_class is None:
-            #If the victim returns a list, the perturbance is the sum of all other values.
+            #If the victim returns a list, the misclassification is the sum of all other values.
             if self.result_type == "list":
-                perturbance = sum(results) - results[self.original_class]
-            #If its not a list, the perturbance is 0 if the result is still the original class, 1 if otherwise.
+                misclassification = sum(results) - results[self.original_class]
+            #If its not a list, the misclassification is 0 if the result is still the original class, 1 if otherwise.
             else:
                 if results == self.original_class:
-                    perturbance = 0
+                    misclassification = 0
                 else:
-                    perturbance = 1
-        #If the attack is targeted, perturbance is determined by how high the new class score is. 
+                    misclassification = 1
+        #If the attack is targeted, misclassification is determined by how high the new class score is. 
         else:
-            #If the victim returns a list, the perturbance is the value found at the desired index (specified by new_class)
+            #If the victim returns a list, the misclassification is the value found at the desired index (specified by new_class)
             if self.result_type == "list":
-                perturbance = results[self.new_class]
-            #If its not a list, the perturbance is 1 if the result is the new class, 0 if otherwise.
+                misclassification = results[self.new_class]
+            #If its not a list, the misclassification is 1 if the result is the new class, 0 if otherwise.
             else:
                 if results == self.new_class:
-                    perturbance = 1
+                    misclassification = 1
                 else:
-                    perturbance = 0
+                    misclassification = 0
 
         #Similarity is measured by the distance between the original array and the perturbed array.
         euclid_distance = 0
         for idx, _ in np.ndenumerate(perturb_array):
             # Find the difference in values, normalize the value, then square it.
-            value_distance = ((float(perturb_array[idx]) - float(self.attack_array[idx])) / self.range) ** 2
+            value_distance = (perturb_array[idx] - self.attack_array[idx]) ** 2
             euclid_distance += value_distance
         
         # Renormalize the final result, take the square root, then subtract that value from 1 to find similarity.
         similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
+        
+        score = misclassification * similarity
 
-        reward = perturbance * similarity
-
-        return (perturbance, similarity, reward, results)
+        return (misclassification, similarity, score, results)
 
     #Reset the parameters (Only called during initialization (and sometimes evaluation))
     def reset(self):
@@ -329,33 +306,46 @@ class MorphEnv(gym.Env):
                     self.reset_set.add(idx)
 
         #Reset the best array statistics.
-        self.best_reward = 0
-        self.best_perturbance = 0
+        self.best_score = 0
+        self.best_misclassification = 0
         self.best_similarity = 0
 
         #Reset the best array statistic scores.
         if self.graph_file is not None:
-            self.perturb_scores = []
-            self.similar_scores = []
-            self.reward_scores = []
+            self.best_score_record = []
+            self.best_misclassification_record = []
+            self.best_similarity_record = []
 
         return self.perturb_array
-
-    #Return the best reward
-    def get_best_reward(self):
-        return self.best_reward
     
-    #Return the best perturbance
-    def get_best_perturbance(self):
-        return self.best_perturbance
+    #If render_level > 1, display the original and perturbed arrays in pyplot.
+    def render(self):
+        print_score = np.format_float_scientific(self.best_score, 3)
+        print_misclassification = np.format_float_scientific(self.best_misclassification, 3)
+        print_similarity = round(self.best_similarity * 100, 3)
+        print(f"Score: {print_score} - Misclassification: {print_misclassification} - Similarity: {print_similarity}%")
+    
+    #Scale the array from [0, 1] to [Min, Max], then cast to the proper datatype
+    def scaleUp(self, arr, min, max, dtype):
+        range = max - min
+        scaled_arr = (arr * range + min).astype(dtype)
+        return scaled_arr
+
+    #Scale the array from [Min, Max] to [0, 1], then cast to the proper datatype
+    def scaleDown(self, arr, min, max):
+        range = max - min
+        scaled_arr = ((arr - min) / range).astype(np.float32)
+        return scaled_arr
+
+    #Return the best score
+    def get_best_score(self):
+        return self.best_score
+    
+    #Return the best misclassification
+    def get_best_misclassification(self):
+        return self.best_misclassification
     
     #Return the best similarity
     def get_best_similarity(self):
         return self.best_similarity
-    
-    #If render_level > 1, display the original and perturbed arrays in pyplot.
-    def render(self):
-        print_perturb = np.format_float_scientific(self.best_perturbance, 3)
-        print_similar = round(self.best_similarity * 100, 3)
-        print(f"Perturbance: {print_perturb} - Similarity: {print_similar}%")
 

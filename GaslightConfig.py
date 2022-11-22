@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from tensorflow.keras import models
 
-from MorphEngine import run
+from GaslightEngine import run
 
 # ===================================================================================================
 # REQUIRED PARAMETERS
@@ -17,15 +17,15 @@ from MorphEngine import run
 def predict_wrapper(image, victim_data):
     victim = victim_data["model"]
     image_input = image.reshape((1,) + image.shape) / 255.0
-    return np.argmax(victim.predict(image_input, verbose=0)[0])
+    return victim.predict(image_input, verbose=0)[0]
 
 #Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
-    "model": models.load_model('mnist')
+    "model": models.load_model('Classifiers/mnist')
 }
 
 #Numpy array to be morphed (Will not affect the original file).
-attack_array = cv2.imread("MNIST.png", 0)
+attack_array = cv2.imread("Inputs/MNIST.png", 0)
 
 #A 2-length tuple that stores the minimum and maximum values for the attack array.
 array_range = (0, 255)
@@ -34,13 +34,13 @@ array_range = (0, 255)
 # If predict_wrapper returns a list of numbers, this is the index to maximize (use zero-based indexing)
 # If predict_wrapper returns an object, this is the intended value
 # If new_class is None, then it will perform an untargeted attack (i.e, it does not matter what the final outcome is, as long as its different from the original)
-new_class = 2
+new_class = 5
 
 #Minimum similarity needed for a successful morph [0-1]
 similarity = 0.9
 
 #Name of the .npy file used to save the final results when successfully perturbed.
-result_file = "FinalMNIST.npy"
+result_file = "Outputs/FinalMNIST.npy"
 
 #Which RL framework to use (A2C, PPO, TD3)
 framework = "PPO"
@@ -56,11 +56,11 @@ framework = "PPO"
 render_interval = 10
 
 #Save model, checkpoint, and graph after how many steps. Set to 0 for no save.
-save_interval = 100
+save_interval = 0
 
 #Checkpoint file used to start (if it exists) and save perturbation (Should be a .npy file with the same shape as attack_array). 
 #Set to None to disable checkpoints. (Note: Checkpoints can also be turned off by save_interval)
-checkpoint_file = "CheckpointMNIST.npy"
+checkpoint_file = "Checkpoints/CheckpointMNIST.npy"
 
 #File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: Graphing can also be turned off by save_interval).
 graph_file = None

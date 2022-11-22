@@ -5,7 +5,7 @@ import optuna
 import pickle
 import tensorflow as tf
 
-from MorphEnv import MorphEnv
+from GaslightEnv import GaslightEnv
 from os.path import exists
 from stable_baselines3 import PPO, TD3, A2C
 from stable_baselines3.common.callbacks import CheckpointCallback
@@ -15,7 +15,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecCheckNan
 from torch import nn as nn
 
 #Callback class that saves the model after a set interval of steps.
-class MorphCheckpoint(CheckpointCallback):
+class GaslightCheckpoint(CheckpointCallback):
     def __init__(self, save_interval, rl_model):
         super().__init__(save_interval, ".", name_prefix=rl_model)
         self.save_interval = save_interval
@@ -35,8 +35,8 @@ def run(predict_wrapper, victim_data, attack_array, array_range, new_class, simi
         hyperparams = study.best_params
 
     #Environment that will conduct the attack.
-    env = MorphEnv(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity, result_file, render_interval, save_interval, checkpoint_file, graph_file)
-    checkpoint_callback = MorphCheckpoint(save_interval, rl_model)
+    env = GaslightEnv(predict_wrapper, victim_data, attack_array, array_range, new_class, similarity, result_file, render_interval, save_interval, checkpoint_file, graph_file)
+    checkpoint_callback = GaslightCheckpoint(save_interval, rl_model)
 
     if framework not in {"A2C", "PPO", "TD3"}:
         raise Exception(f"Unknown Framework: {framework} - Available Frameworks: (A2C, PPO, TD3)")
