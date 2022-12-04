@@ -21,11 +21,11 @@ def predict_wrapper(image, victim_data):
 
 #Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
-    "model": models.load_model("mnist")
+    "model": models.load_model("Classifiers/mnist")
 }
 
 #Numpy array to be morphed (Will not affect the original file).
-attack_array = cv2.imread("MNIST.png", 0)
+attack_array = cv2.imread("Inputs/MNIST.png", 0)
 
 #A 2-length tuple that stores the minimum and maximum values for the attack array.
 array_range = (0, 255)
@@ -36,16 +36,16 @@ array_range = (0, 255)
 new_class = 5
 
 #Which RL framework to use (Currently only supports A2C, will add the other frameworks soon)
-framework = "A2C"
+framework = "PPO"
 
 #Where to save the optimal hyperparameters (This is a .pkl file). Can also be set to an existing file to continue trials.
-param_file = "A2C-Params.pkl"
+param_file = "Params/PPO-Params.pkl"
 
 #How many trials to run for this iteration.
 trials = 20
 
 #How many timesteps to run through per trial.
-timesteps = 2000
+timesteps = 1200
 
 class ParamFinder:
     def __init__(self, predict_wrapper, victim_data, attack_array, array_range, new_class, framework, param_file, trials, timesteps):
@@ -66,7 +66,7 @@ class ParamFinder:
             self.study = optuna.create_study(direction="maximize")
 
     def run(self):
-        self.study.optimize(self.optimize_a2c, n_trials=self.trials)
+        self.study.optimize(self.optimize_framework, n_trials=self.trials)
         pickle.dump(self.study, open(self.param_file, 'wb'))
     
     def get_a2c(self, trial):
@@ -97,9 +97,9 @@ class ParamFinder:
         gamma = trial.suggest_categorical("gamma", [0.95, 0.98, 0.99, 0.995, 0.999])
         gae_lambda = trial.suggest_categorical("gae_lambda", [0.9, 0.92, 0.95, 0.98, 0.99, 1.0])
 
-        learning_rate = trial.suggest_float("learning_rate", 1e-4, 5e-2)
-        ent_coef = trial.suggest_float("ent_coef", 0.000001, 0.1)
-        vf_coef = trial.suggest_float("vf_coef", 0.1, 1)
+        learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-1)
+        ent_coef = trial.suggest_float("ent_coef", 1e-5, 1e-1)
+        vf_coef = trial.suggest_float("vf_coef", 1e-2, 1)
 
         if batch_size > n_steps:
             batch_size = n_steps
@@ -153,13 +153,13 @@ class ParamFinder:
             hyperparams = self.get_td3(trial)
             model = TD3("MlpPolicy", env, **hyperparams)
         else:
-            raise Exception(f"Unknown Framework: {self.framework} - Available Frameworks: (A2C)")
+            raise Exception(f"Unknown Framework: {self.framework} - Available Frameworks: (A2C, PPO, TD3)")
 
         #Run the trial for the designated number of timesteps.
         model.learn(self.timesteps, progress_bar=True)
 
         #Return the best reward as the score for this trial.
-        reward = env.get_best_reward()
+        reward = env.get_best_score()
         return reward
 
 if __name__=='__main__':
