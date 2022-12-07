@@ -159,7 +159,7 @@ class ParamFinder:
         model.learn(self.timesteps, progress_bar=True)
 
         #Return the best reward as the score for this trial.
-        reward = env.get_best_score()
+        reward = env.get_best_misclassification() * env.get_best_similarity()
         return reward
 
 if __name__=='__main__':

@@ -30,6 +30,7 @@ class GaslightEnv(gym.Env):
         #The datatype of the array.
         self.dtype = self.original_array.dtype
 
+        #A scaled version of the original array, used as a reference point.
         self.attack_array = self.scaleDown(self.original_array, self.array_range[0], self.array_range[1])
 
         #A string containing the path to the checkpoint file.
@@ -58,7 +59,7 @@ class GaslightEnv(gym.Env):
                     self.reset_set.add(idx)
 
         #The observation space is the space of all values that can be provided as input.
-        #In this case, the agent should receive a matrix of values.
+        #In this case, the agent should receive the perturbed version of the array.
         self.observation_space = Box(low=0, high=1, shape=self.shape, dtype=np.float32)
 
         #Actions are made up of three components:
@@ -90,8 +91,7 @@ class GaslightEnv(gym.Env):
         #Location where the final results will be stored.
         self.result_file = result_file
 
-        #Agent will store the array with the highest score.
-        #That "best score" array will also have its misclassification and similarity recorded for future reference.
+        #Store the misclassification and similarity for the current perturbed array.
         self.best_misclassification = 0
         self.best_similarity = 0
 
@@ -101,8 +101,8 @@ class GaslightEnv(gym.Env):
             self.graph_file = graph_file
             if exists(self.graph_file):
                 graph_data = np.load(self.graph_file).tolist()
-                self.best_misclassification_record = graph_data[1]
-                self.best_similarity_record = graph_data[2]
+                self.best_misclassification_record = graph_data[0]
+                self.best_similarity_record = graph_data[1]
             else:
                 self.best_misclassification_record = []
                 self.best_similarity_record = []
@@ -119,16 +119,18 @@ class GaslightEnv(gym.Env):
 
     #When the agent receives an action, it will act upon it and determine how good/bad the action was.
     def step(self, action):
-        #Each action is actually two separate perturbances.
-        #The first action changes a specified value to a specified magnitude, as determined by the neural network.
-        #The second action takes a previously changed value and moves it closer to the original.
         self.timesteps += 1
 
         #Create a copy of the current perturbed array, then sample the action on this copy.
         perturb_test = np.copy(self.perturb_array)
+
+        #The new value of the location
         perturb_strength = action[0]
+
+        #The location of the change
         perturb_location = action[1::]
 
+        #For each dimension in the action, scale it up to match the shape.
         for idx, dim in np.ndenumerate(perturb_location):
             perturb_location[idx[0]] = self.scaleUp(dim, 0, self.shape[idx[0]] - 1, int)
         
@@ -137,6 +139,7 @@ class GaslightEnv(gym.Env):
         #Perform the unit change action on the designated location.
         perturb_test[perturb_location] = perturb_strength
         
+        #Calculate the results of the change
         misclassification, similarity, results = self.collect_diagnostics(perturb_test)
 
         #If this perturbed array has a higher score than the current best, then this array is the new best.
@@ -154,23 +157,30 @@ class GaslightEnv(gym.Env):
             elif perturb_location in self.reset_set:
                 self.reset_set.remove(perturb_location)
 
+        #If the array reaches a high enough misclassification, but not similarity, start a reset
+        # TODO - Add a misclassification threshold
         if self.best_misclassification >= 0.98 and similarity <= self.similarity_threshold:
-            print("Successful Misclassification - Resetting")
+            if self.render_interval > 0:
+                print("Successful Misclassification - Resetting")
             resets = []
+            #For every value that can be reset
             for location in self.reset_set:
+                #Temporarily reset the value
                 old_value = self.perturb_array[location]
                 self.perturb_array[location] = self.attack_array[location]
+
+                #Calculate the diagnostics of this newly reset value
                 reset_misclass, reset_similarity, _ = self.collect_diagnostics(self.perturb_array)
-                if self.result_type == "list":
-                    reset_score = (reset_misclass - misclassification) * (reset_similarity - similarity)
-                else:
-                    reset_score = (reset_similarity - similarity)
+                reset_score = reset_misclass * reset_similarity
                 resets.append((reset_score, location))
+
+                #Revert back to the original value
                 self.perturb_array[location] = old_value
-                # value_delta = (self.attack_array[location] - self.perturb_array[location]) * 0.1
-                # self.perturb_array[location] += value_delta
             
+            #Sort the reset scores in order from least change to most
             resets = sorted(resets, key=lambda x: x[0], reverse=True)
+
+            #Remove the values that cause the least change when reset until the similarity reaches the threshold
             index = 0
             while similarity <= self.similarity_threshold:
                 reset_location = resets[index][1]
@@ -179,6 +189,7 @@ class GaslightEnv(gym.Env):
                 misclassification, similarity, results = self.collect_diagnostics(self.perturb_array)
                 index += 1
             
+            #Update the statistics to reflect the reset
             self.best_misclassification = misclassification
             self.best_similarity = similarity
             
@@ -220,11 +231,14 @@ class GaslightEnv(gym.Env):
     
     def successful_misclass(self, results):
         #Determine if misclassified
+        #If untargeted
         if self.new_class is None:
+            #If results are a list
             if self.result_type == "list" and np.argmax(results) != self.original_class:
                 return True
             elif self.result_type == "object" and results != self.original_class:
                 return True
+        #If targeted
         else:
             if self.result_type == "list" and np.argmax(results) == self.new_class:
                 return True
@@ -294,15 +308,15 @@ class GaslightEnv(gym.Env):
         if self.graph_file is not None:
             if exists(self.graph_file):
                 graph_data = np.load(self.graph_file).tolist()
-                self.best_misclassification_record = graph_data[1]
-                self.best_similarity_record = graph_data[2]
+                self.best_misclassification_record = graph_data[0]
+                self.best_similarity_record = graph_data[1]
             else:
                 self.best_misclassification_record = []
                 self.best_similarity_record = []
 
         return self.perturb_array
     
-    #If render_level > 1, display the original and perturbed arrays in pyplot.
+    #If render_interval > 0, display the original and perturbed arrays in pyplot.
     def render(self):
         print_misclassification = np.format_float_scientific(self.best_misclassification, 3)
         print_similarity = round(self.best_similarity * 100, 3)

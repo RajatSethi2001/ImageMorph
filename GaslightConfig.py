@@ -37,7 +37,7 @@ array_range = (0, 255)
 new_class = 5
 
 #Minimum similarity needed for a successful morph [0-1]
-similarity = 0.85
+similarity = 0.9
 
 #Name of the .npy file used to save the final results when successfully perturbed.
 result_file = "Outputs/MNIST-Soft-Targeted-Reset.npy"
