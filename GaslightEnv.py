@@ -6,6 +6,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import time
 
 from gym.spaces import Box
 from os.path import exists
@@ -31,7 +32,7 @@ class GaslightEnv(gym.Env):
         self.dtype = self.original_array.dtype
 
         #A scaled version of the original array, used as a reference point.
-        self.attack_array = self.scaleDown(self.original_array, self.array_range[0], self.array_range[1])
+        # self.attack_array = self.scaleDown(self.original_array, self.array_range[0], self.array_range[1])
 
         #A string containing the path to the checkpoint file.
         self.checkpoint_file = checkpoint_file
@@ -40,27 +41,27 @@ class GaslightEnv(gym.Env):
         self.checkpoint = None
         if self.checkpoint_file is not None and exists(self.checkpoint_file):
             self.checkpoint = np.load(self.checkpoint_file)
-            self.checkpoint = self.scaleDown(self.checkpoint, self.array_range[0], self.array_range[1])
+            # self.checkpoint = self.scaleDown(self.checkpoint, self.array_range[0], self.array_range[1])
         
         #Shape of the array.
-        self.shape = self.attack_array.shape
+        self.shape = self.original_array.shape
 
         #A set containing all of the values that differ from the original. Will be used during the reset action.
         self.reset_set = set()
 
         #If no checkpoint is given, start from the original.
         if self.checkpoint is None:
-            self.perturb_array = np.copy(self.attack_array)
+            self.perturb_array = np.copy(self.original_array)
         else:
             self.perturb_array = np.copy(self.checkpoint)
             #If using a checkpoint file, add the changed values to reset_set
             for idx, _ in np.ndenumerate(self.perturb_array):
-                if self.perturb_array[idx] != self.attack_array[idx]:
+                if self.perturb_array[idx] != self.original_array[idx]:
                     self.reset_set.add(idx)
 
         #The observation space is the space of all values that can be provided as input.
         #In this case, the agent should receive the perturbed version of the array.
-        self.observation_space = Box(low=0, high=1, shape=self.shape, dtype=np.float32)
+        self.observation_space = Box(low=self.array_range[0], high=self.array_range[1], shape=self.shape, dtype=np.float32)
 
         #Actions are made up of three components:
         #Strength - What the value should be changed to (after scaling)
@@ -70,8 +71,7 @@ class GaslightEnv(gym.Env):
         #Get current results to determine the type of output from classifier.
         #If the classifier returns a list, the agent will try to maximize the index determined from new_class
         #If the classifier returns something else, the agent will try to make new_class occur.
-        input_array = self.scaleUp(self.attack_array, self.array_range[0], self.array_range[1], self.dtype)
-        results = self.predict_wrapper(input_array, self.victim_data)
+        results = self.predict_wrapper(self.original_array, self.victim_data)
         self.result_type = "object"
         if isinstance(results, list) or isinstance(results, tuple) or isinstance(results, np.ndarray):
             self.result_type = "list"
@@ -125,7 +125,7 @@ class GaslightEnv(gym.Env):
         perturb_test = np.copy(self.perturb_array)
 
         #The new value of the location
-        perturb_strength = action[0]
+        perturb_strength = self.scaleUp(action[0], self.array_range[0], self.array_range[1], self.dtype)
 
         #The location of the change
         perturb_location = action[1::]
@@ -148,51 +148,52 @@ class GaslightEnv(gym.Env):
             reward = misclassification
             self.best_misclassification = misclassification
             self.best_similarity = similarity
-            self.perturb_array = copy.deepcopy(perturb_test)
+            self.perturb_array = np.copy(perturb_test)
 
             #Add or remove the value from reset_set, depending on what the new value is and how it compares to the original.
-            if self.perturb_array[perturb_location] != self.attack_array[perturb_location]:
+            if self.perturb_array[perturb_location] != self.original_array[perturb_location]:
                 if perturb_location not in self.reset_set:
                     self.reset_set.add(perturb_location)
             elif perturb_location in self.reset_set:
                 self.reset_set.remove(perturb_location)
 
         #If the array reaches a high enough misclassification, but not similarity, start a reset
-        # TODO - Add a misclassification threshold
-        if self.best_misclassification >= 0.98 and similarity <= self.similarity_threshold:
+        resets = -1
+        if self.successful_misclass(results) and similarity < self.similarity_threshold:
             if self.render_interval > 0:
                 print("Successful Misclassification - Resetting")
-            resets = []
-            #For every value that can be reset
-            for location in self.reset_set:
-                #Temporarily reset the value
-                old_value = self.perturb_array[location]
-                self.perturb_array[location] = self.attack_array[location]
+            while resets != 0:
+                resets = 0
+                marked = set()
+                #For every value that can be reset
+                for location in self.reset_set:
+                    #Temporarily reset the value
+                    changed_value = self.perturb_array[location]
+                    original_value = self.original_array[location]
+                    self.perturb_array[location] = changed_value + (float(original_value) - changed_value) * 0.2
+                    #Calculate the diagnostics of this newly reset value
+                    reset_misclass, reset_similarity, reset_results = self.collect_diagnostics(self.perturb_array)
+                    if (self.successful_misclass(reset_results)):
+                        misclassification = reset_misclass
+                        similarity = reset_similarity
+                        results = reset_results
+                        resets += 1
+                    else:
+                        self.perturb_array[location] = changed_value
+                    
+                    scaled_original = self.scaleDown(original_value, self.array_range[0], self.array_range[1])
+                    scaled_changed = self.scaleDown(self.perturb_array[location], self.array_range[0], self.array_range[1])
+                    if abs(float(scaled_changed) - scaled_original) < 0.02:
+                        self.perturb_array[location] = original_value
+                        marked.add(location)
+                #Update the statistics to reflect the reset
+                self.best_misclassification = misclassification
+                self.best_similarity = similarity
+                
+                self.reset_set = self.reset_set.difference(marked)
+                print(f"Resets = {resets}")
+            self.render()
 
-                #Calculate the diagnostics of this newly reset value
-                reset_misclass, reset_similarity, _ = self.collect_diagnostics(self.perturb_array)
-                reset_score = reset_misclass * reset_similarity
-                resets.append((reset_score, location))
-
-                #Revert back to the original value
-                self.perturb_array[location] = old_value
-            
-            #Sort the reset scores in order from least change to most
-            resets = sorted(resets, key=lambda x: x[0], reverse=True)
-
-            #Remove the values that cause the least change when reset until the similarity reaches the threshold
-            index = 0
-            while similarity <= self.similarity_threshold:
-                reset_location = resets[index][1]
-                self.perturb_array[reset_location] = self.attack_array[reset_location]
-                self.reset_set.remove(reset_location)
-                misclassification, similarity, results = self.collect_diagnostics(self.perturb_array)
-                index += 1
-            
-            #Update the statistics to reflect the reset
-            self.best_misclassification = misclassification
-            self.best_similarity = similarity
-            
         #When the render interval passes, print out the best score, misclassification, and similarity.
         if self.render_interval > 0 and self.timesteps % self.render_interval == 0:
             self.render()
@@ -210,8 +211,7 @@ class GaslightEnv(gym.Env):
 
         #If the array has been successfully misclassified and has a higher similarity than the threshold, save the result. 
         if self.successful_misclass(results) and self.best_similarity >= self.similarity_threshold:
-            save_array = self.scaleUp(self.perturb_array, self.array_range[0], self.array_range[1], self.dtype)
-            np.save(self.result_file, save_array)
+            np.save(self.result_file, self.perturb_array)
             print(f"Successful perturb! Array saved at {self.result_file}")
             if self.result_type == "list":
                 print(f"Original Index: {self.original_class}")
@@ -223,11 +223,13 @@ class GaslightEnv(gym.Env):
         
         #If save interval passes, save the current checkpoint
         elif self.save_interval > 0 and self.timesteps % self.save_interval == 0 and self.checkpoint_file is not None:
-            save_array = self.scaleUp(self.perturb_array, self.array_range[0], self.array_range[1], self.dtype)
-            np.save(self.checkpoint_file, save_array)
+            np.save(self.checkpoint_file, self.perturb_array)
             print(f"Checkpoint array saved at {self.checkpoint_file}")
 
-        return perturb_test, reward, False, {}    
+        if resets == -1:
+            return self.scaleDown(perturb_test, self.array_range[0], self.array_range[1]), reward, False, {}
+        else:
+            return self.scaleDown(self.perturb_array, self.array_range[0], self.array_range[1]), reward, False, {}  
     
     def successful_misclass(self, results):
         #Determine if misclassified
@@ -248,8 +250,7 @@ class GaslightEnv(gym.Env):
     
     def collect_diagnostics(self, perturb_array):
         #Get the results from the classifier.
-        perturb_input = self.scaleUp(perturb_array, self.array_range[0], self.array_range[1], self.dtype)
-        results = self.predict_wrapper(perturb_input, self.victim_data)
+        results = self.predict_wrapper(perturb_array, self.victim_data)
 
         #If the attack is untargeted, misclassification is determined by how low the original class score is. 
         if self.new_class is None:
@@ -278,11 +279,11 @@ class GaslightEnv(gym.Env):
         euclid_distance = 0
         for idx, _ in np.ndenumerate(perturb_array):
             # Find the difference in values, normalize the value, then square it.
-            value_distance = (perturb_array[idx] - self.attack_array[idx]) ** 2
+            value_distance = (float(perturb_array[idx]) - self.original_array[idx]) ** 2
             euclid_distance += value_distance
         
         # Renormalize the final result, take the square root, then subtract that value from 1 to find similarity.
-        similarity = 1 - math.sqrt(euclid_distance / math.prod(self.shape))
+        similarity = 1 - math.sqrt(euclid_distance / (math.prod(self.shape) * (self.range ** 2)))
 
         return (misclassification, similarity, results)
 
@@ -293,11 +294,11 @@ class GaslightEnv(gym.Env):
 
         #Set the array back to what it was during initialization.
         if self.checkpoint is None:
-            self.perturb_array = copy.deepcopy(self.attack_array)
+            self.perturb_array = copy.deepcopy(self.original_array)
         else:
             self.perturb_array = copy.deepcopy(self.checkpoint)
             for idx, _ in np.ndenumerate(self.perturb_array):
-                if self.perturb_array[idx] != self.attack_array[idx]:
+                if self.perturb_array[idx] != self.original_array[idx]:
                     self.reset_set.add(idx)
 
         #Reset the best array statistics.
@@ -314,7 +315,7 @@ class GaslightEnv(gym.Env):
                 self.best_misclassification_record = []
                 self.best_similarity_record = []
 
-        return self.perturb_array
+        return self.scaleDown(self.perturb_array, self.array_range[0], self.array_range[1])
     
     #If render_interval > 0, display the original and perturbed arrays in pyplot.
     def render(self):
@@ -328,10 +329,10 @@ class GaslightEnv(gym.Env):
         scaled_arr = (arr * range + min).astype(dtype)
         return scaled_arr
 
-    #Scale the array from [Min, Max] to [0, 1], then cast to the proper datatype
+    # #Scale the array from [Min, Max] to [0, 1], then cast to the proper datatype
     def scaleDown(self, arr, min, max):
         range = max - min
-        scaled_arr = ((arr - min) / range).astype(np.float32)
+        scaled_arr = ((arr.astype(np.float32) - min) / range)
         return scaled_arr
     
     #Return the best misclassification

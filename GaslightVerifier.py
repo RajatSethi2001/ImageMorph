@@ -26,5 +26,5 @@ def mnist_load(filename):
     print(np.argmax(model.predict(image_input)[0]))
     cv2.imwrite(f"{filename}.png", image)
 
-mnist_load("Outputs/MNIST-Hard-Targeted.npy")
-graph_load("Figures/MNIST-Hard-Targeted.npy")
+mnist_load("Outputs/MNIST-Soft-Targeted.npy")
+graph_load("Figures/MNIST-Soft-Targeted.npy")
