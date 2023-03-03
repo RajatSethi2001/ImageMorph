@@ -26,5 +26,15 @@ def mnist_load(filename):
     print(np.argmax(model.predict(image_input)[0]))
     cv2.imwrite(f"{filename}.png", image)
 
-mnist_load("Outputs/MNIST-Soft-Targeted.npy")
-graph_load("Figures/MNIST-Soft-Targeted.npy")
+def cifar_load(filename):
+    model = models.load_model("Classifiers/cifar10")
+    image = np.load(filename)
+    image_input = image.reshape((1,) + image.shape) / 255.0
+    print(np.argmax(model.predict(image_input)[0]))
+    cv2.imwrite(f"{filename}.png", image)
+
+mnist_load("Outputs/MNIST-Test.npy")
+graph_load("Figures/MNIST-Test.npy")
+
+# cifar_load("Outputs/CIFAR-Test.npy")
+# graph_load("Figures/CIFAR-Test.npy")

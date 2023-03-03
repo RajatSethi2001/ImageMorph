@@ -26,11 +26,11 @@ def predict_wrapper(image, victim_data):
 
 #Data that predict_wrapper will use that contains victim model and other data-processing variables.
 victim_data = {
-    "model": models.load_model('Classifiers/mnist')
+    "model": models.load_model('Classifiers/cifar10')
 }
 
 #Numpy array to be morphed (Will not affect the original file).
-attack_array = cv2.imread("Inputs/MNIST.png", 0)
+attack_array = cv2.imread("Inputs/CIFAR10.png")
 
 #A 2-length tuple that stores the minimum and maximum values for the attack array.
 array_range = (0, 255)
@@ -39,13 +39,13 @@ array_range = (0, 255)
 # If predict_wrapper returns a list of numbers, this is the index to maximize (use zero-based indexing)
 # If predict_wrapper returns an object, this is the intended value
 # If new_class is None, then it will perform an untargeted attack (i.e, it does not matter what the final outcome is, as long as its different from the original)
-new_class = 5
+new_class = None
 
 #Minimum similarity needed for a successful morph [0-1]
 similarity = 0.9
 
 #Name of the .npy file used to save the final results when successfully perturbed.
-result_file = "Outputs/MNIST-Test.npy"
+result_file = "Outputs/CIFAR-Test.npy"
 
 #Which RL framework to use (A2C, PPO, TD3)
 framework = "PPO"
@@ -69,7 +69,7 @@ save_interval = 100
 checkpoint_file = None
 
 #File to store graphing information (Perturbance, Similarity, Reward). Set to None for no graphing. (Note: Graphing can also be turned off by save_interval).
-graph_file = "Figures/MNIST-Test.npy"
+graph_file = "Figures/CIFAR-Test.npy"
 
 #Which RL model to use/save to (If it doesn't exist, it will be created). Stable-Baselines3 uses a .zip file. Set to None for no model.
 rl_model = None

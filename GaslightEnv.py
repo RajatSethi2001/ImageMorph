@@ -158,41 +158,42 @@ class GaslightEnv(gym.Env):
                 self.reset_set.remove(perturb_location)
 
         #If the array reaches a high enough misclassification, but not similarity, start a reset
-        resets = -1
-        if self.successful_misclass(results) and similarity < self.similarity_threshold:
+        if self.successful_misclass(results):
             if self.render_interval > 0:
                 print("Successful Misclassification - Resetting")
+            
+            marked = set()
+            reset_bar = 0.5
+            #For every value that can be reset
+            resets = -1
             while resets != 0:
                 resets = 0
-                marked = set()
-                #For every value that can be reset
                 for location in self.reset_set:
                     #Temporarily reset the value
                     changed_value = self.perturb_array[location]
                     original_value = self.original_array[location]
-                    self.perturb_array[location] = changed_value + (float(original_value) - changed_value) * 0.2
+                    self.perturb_array[location] = changed_value + (float(original_value) - changed_value) * 0.5
                     #Calculate the diagnostics of this newly reset value
                     reset_misclass, reset_similarity, reset_results = self.collect_diagnostics(self.perturb_array)
-                    if (self.successful_misclass(reset_results)):
-                        misclassification = reset_misclass
-                        similarity = reset_similarity
-                        results = reset_results
+                    if (self.successful_misclass(reset_results) and self.perturb_array[location] != changed_value):
+                        reset_bar = reset_misclass
                         resets += 1
                     else:
                         self.perturb_array[location] = changed_value
+                        reset_misclass, reset_similarity, reset_results = self.collect_diagnostics(self.perturb_array)
                     
-                    scaled_original = self.scaleDown(original_value, self.array_range[0], self.array_range[1])
-                    scaled_changed = self.scaleDown(self.perturb_array[location], self.array_range[0], self.array_range[1])
-                    if abs(float(scaled_changed) - scaled_original) < 0.02:
-                        self.perturb_array[location] = original_value
+                    if self.perturb_array[location] == original_value:
                         marked.add(location)
-                #Update the statistics to reflect the reset
-                self.best_misclassification = misclassification
-                self.best_similarity = similarity
-                
+            
+                # misclassification, similarity, results = self.collect_diagnostics(self.perturb_array)
                 self.reset_set = self.reset_set.difference(marked)
+                marked = set()
                 print(f"Resets = {resets}")
-            self.render()
+            
+            #Update the statistics to reflect the reset
+            misclassification, similarity, results = self.collect_diagnostics(self.perturb_array)
+            self.best_misclassification = misclassification
+            self.best_similarity = similarity
 
         #When the render interval passes, print out the best score, misclassification, and similarity.
         if self.render_interval > 0 and self.timesteps % self.render_interval == 0:
@@ -210,7 +211,7 @@ class GaslightEnv(gym.Env):
                 np.save(self.graph_file, graph_data)
 
         #If the array has been successfully misclassified and has a higher similarity than the threshold, save the result. 
-        if self.successful_misclass(results) and self.best_similarity >= self.similarity_threshold:
+        if self.successful_misclass(results):
             np.save(self.result_file, self.perturb_array)
             print(f"Successful perturb! Array saved at {self.result_file}")
             if self.result_type == "list":
@@ -219,6 +220,7 @@ class GaslightEnv(gym.Env):
             else:
                 print(f"Original Class: {self.original_class}")
                 print(f"New Class: {results}")
+            self.render()
             exit()
         
         #If save interval passes, save the current checkpoint
@@ -226,10 +228,7 @@ class GaslightEnv(gym.Env):
             np.save(self.checkpoint_file, self.perturb_array)
             print(f"Checkpoint array saved at {self.checkpoint_file}")
 
-        if resets == -1:
-            return self.scaleDown(perturb_test, self.array_range[0], self.array_range[1]), reward, False, {}
-        else:
-            return self.scaleDown(self.perturb_array, self.array_range[0], self.array_range[1]), reward, False, {}  
+        return self.scaleDown(perturb_test, self.array_range[0], self.array_range[1]), reward, False, {} 
     
     def successful_misclass(self, results):
         #Determine if misclassified
